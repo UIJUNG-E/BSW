@@ -3,9 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <title>창고 메자닌 선반 실시간 재고 관리</title>
-    <!-- Firebase Realtime Database SDK (CDN) -->
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <!-- Firebase App (Core) 및 Realtime Database CDN -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+<script>
+    // Firebase 설정 (주소 명시)
+    const firebaseConfig = {
+        databaseURL: "https://warehouse-bs-5e863-default-rtdb.firebaseio.com/"
+    };
+
+    // 중복 초기화 방지 체크
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    } else {
+        firebase.app();
+    }
+
+    const dbRef = firebase.database().ref('warehouse');
+    // 이하 기존 로직 동일...
+</script>
 
     <style>
         body {
