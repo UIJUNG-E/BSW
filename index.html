@@ -3,26 +3,295 @@
 <head>
     <meta charset="UTF-8">
     <title>창고 메자닌 선반 실시간 재고 관리</title>
-    <!-- Firebase App (Core) 및 Realtime Database CDN -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    
+    <!-- Firebase SDK v10 (Modular) 로드 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, onValue, set, update, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-<script>
-    // Firebase 설정 (주소 명시)
-    const firebaseConfig = {
-        databaseURL: "https://warehouse-bs-5e863-default-rtdb.firebaseio.com/"
-    };
+        // 파이어베이스 설정
+        const firebaseConfig = {
+            databaseURL: "https://warehouse-bs-5e863-default-rtdb.firebaseio.com/"
+        };
 
-    // 중복 초기화 방지 체크
-    if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
-    } else {
-        firebase.app();
-    }
+        // 초기화
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const dbRef = ref(db, 'warehouse');
 
-    const dbRef = firebase.database().ref('warehouse');
-    // 이하 기존 로직 동일...
-</script>
+        let warehouseData = {};
+        let currentEditingKey = null;
+        let draggedSourceKey = null;
+
+        const totalRacks = 6;
+        const aisleRacks = [2, 5]; // 2구역, 5구역은 통로
+
+        const syncStatus = document.getElementById('syncStatus');
+
+        // 최초 기본 데이터 생성
+        function initDefaultData() {
+            get(child(ref(db), 'warehouse')).then((snapshot) => {
+                if (!snapshot.exists()) {
+                    let initialData = {};
+                    for (let r = 1; r <= totalRacks; r++) {
+                        let isAisle = aisleRacks.includes(r);
+                        for (let tier = 3; tier >= 1; tier--) {
+                            for (let col = 1; col <= 14; col++) {
+                                let key = `R${r}-${tier}-${col}`;
+                                let val = '';
+                                let status = 'occupied';
+
+                                if (isAisle) {
+                                    val = '';
+                                    status = 'aisle';
+                                } else {
+                                    val = (col % 3 === 0) ? 'x' : (r * 10 + col);
+                                    if (col === 5 && r === 3) val = '불량';
+
+                                    if (val === 'x' || val === '') {
+                                        status = 'empty';
+                                        val = 'x';
+                                    } else if (val === '불량') {
+                                        status = 'defect';
+                                    } else {
+                                        status = 'occupied';
+                                    }
+                                }
+
+                                initialData[key] = {
+                                    rack: r,
+                                    tier: tier,
+                                    col: col,
+                                    pallet: val,
+                                    items: [val && val !== 'x' ? `제품-${val}` : '-'],
+                                    status: status
+                                };
+                            }
+                        }
+                    }
+                    set(dbRef, initialData);
+                }
+            }).catch((error) => {
+                console.error("초기 데이터 로드 실패:", error);
+            });
+        }
+
+        // 실시간 리스너 연결
+        function listenRealtimeData() {
+            onValue(dbRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    warehouseData = data;
+                    renderWarehouse();
+                    syncStatus.innerText = "🟢 실시간 동기화 연결됨";
+                    syncStatus.style.color = "#28a745";
+                } else {
+                    syncStatus.innerText = "⚠️ 데이터가 비어있습니다.";
+                }
+            }, (error) => {
+                console.error("Firebase 연결 에러:", error);
+                syncStatus.innerText = "🔴 연결 오류: " + error.message;
+                syncStatus.style.color = "red";
+            });
+        }
+
+        function renderWarehouse() {
+            const container = document.getElementById('allRacks');
+            container.innerHTML = '';
+
+            for (let r = 1; r <= totalRacks; r++) {
+                let isAisle = aisleRacks.includes(r);
+
+                const rackDiv = document.createElement('div');
+                rackDiv.className = `rack-section ${isAisle ? 'aisle-section' : ''}`;
+                
+                const titleDiv = document.createElement('div');
+                titleDiv.className = `rack-title ${isAisle ? 'aisle-title' : ''}`;
+                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 제 ${r} 구역 메자닌 선반 ]`;
+                rackDiv.appendChild(titleDiv);
+
+                for (let tier = 3; tier >= 1; tier--) {
+                    const tierDiv = document.createElement('div');
+                    tierDiv.className = 'shelf-tier';
+
+                    const labelDiv = document.createElement('div');
+                    labelDiv.className = 'tier-label';
+                    labelDiv.innerText = `${tier}층`;
+                    tierDiv.appendChild(labelDiv);
+
+                    const gridDiv = document.createElement('div');
+                    gridDiv.className = 'grid-14';
+
+                    for (let col = 1; col <= 14; col++) {
+                        let key = `R${r}-${tier}-${col}`;
+                        let data = warehouseData[key];
+                        if (!data) continue;
+
+                        const slot = document.createElement('div');
+                        slot.className = `slot ${data.status}`;
+                        slot.innerText = data.pallet;
+                        
+                        const hasValue = data.pallet !== '' && data.pallet !== 'x';
+                        slot.setAttribute('draggable', hasValue);
+                        slot.dataset.key = key;
+
+                        slot.addEventListener('dragstart', (e) => {
+                            draggedSourceKey = e.target.dataset.key;
+                            e.dataTransfer.setData('text/plain', draggedSourceKey);
+                        });
+                        slot.addEventListener('dragover', (e) => {
+                            e.preventDefault();
+                            e.currentTarget.classList.add('drag-over');
+                        });
+                        slot.addEventListener('dragleave', (e) => {
+                            e.currentTarget.classList.remove('drag-over');
+                        });
+                        slot.addEventListener('drop', (e) => {
+                            e.preventDefault();
+                            const targetKey = e.currentTarget.dataset.key;
+                            e.currentTarget.classList.remove('drag-over');
+
+                            if (draggedSourceKey && draggedSourceKey !== targetKey) {
+                                let srcData = warehouseData[draggedSourceKey];
+                                let targetData = warehouseData[targetKey];
+
+                                let srcIsAisle = aisleRacks.includes(srcData.rack);
+                                let targetIsAisle = aisleRacks.includes(targetData.rack);
+
+                                let updates = {};
+                                updates[targetKey + '/pallet'] = srcData.pallet;
+                                updates[targetKey + '/items'] = srcData.items;
+                                updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
+
+                                updates[draggedSourceKey + '/pallet'] = srcIsAisle ? '' : 'x';
+                                updates[draggedSourceKey + '/items'] = ['-'];
+                                updates[draggedSourceKey + '/status'] = srcIsAisle ? 'aisle' : 'empty';
+
+                                update(dbRef, updates);
+                            }
+                        });
+                        slot.addEventListener('click', () => openModal(key));
+
+                        gridDiv.appendChild(slot);
+                    }
+                    tierDiv.appendChild(gridDiv);
+                    rackDiv.appendChild(tierDiv);
+                }
+                container.appendChild(rackDiv);
+            }
+        }
+
+        function openModal(key) {
+            currentEditingKey = key;
+            let data = warehouseData[key];
+
+            let locationName = aisleRacks.includes(data.rack) 
+                ? `통로 ${data.rack} / ${data.tier}층 / ${data.col}열`
+                : `제 ${data.rack}구역 / ${data.tier}층 / ${data.col}열`;
+
+            document.getElementById('modalTitle').innerText = locationName;
+            document.getElementById('modalLoc').innerText = locationName;
+            document.getElementById('modalPallet').value = data.pallet;
+            document.getElementById('modalStatus').value = data.status;
+
+            renderItemList(data.items || ['-']);
+            document.getElementById('infoModal').style.display = 'flex';
+        }
+
+        window.renderItemList = function(items) {
+            const container = document.getElementById('itemListContainer');
+            container.innerHTML = '';
+            
+            items.forEach((item, index) => {
+                const row = document.createElement('div');
+                row.className = 'input-row';
+                
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = item;
+                input.className = 'item-input';
+                row.appendChild(input);
+
+                const delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'btn-delete';
+                delBtn.innerText = '삭제';
+                delBtn.onclick = () => window.removeItemRow(index);
+                row.appendChild(delBtn);
+
+                if (index === 0) {
+                    const addBtn = document.createElement('button');
+                    addBtn.type = 'button';
+                    addBtn.className = 'btn-add-item';
+                    addBtn.innerText = '+';
+                    addBtn.onclick = window.addItemRow;
+                    row.appendChild(addBtn);
+                }
+
+                container.appendChild(row);
+            });
+        };
+
+        window.addItemRow = function() {
+            const inputs = document.querySelectorAll('.item-input');
+            let currentItems = Array.from(inputs).map(input => input.value);
+            currentItems.push('');
+            window.renderItemList(currentItems);
+        };
+
+        window.removeItemRow = function(index) {
+            const inputs = document.querySelectorAll('.item-input');
+            let currentItems = Array.from(inputs).map(input => input.value);
+            currentItems.splice(index, 1);
+            if (currentItems.length === 0) currentItems.push('-');
+            window.renderItemList(currentItems);
+        };
+
+        window.clearPalletField = function() {
+            document.getElementById('modalPallet').value = 'x';
+            document.getElementById('modalStatus').value = 'empty';
+            window.renderItemList(['-']);
+        };
+
+        window.handlePalletInput = function(val) {
+            if (val === 'x' || val === '') {
+                document.getElementById('modalStatus').value = 'empty';
+            } else if (val.length > 0) {
+                document.getElementById('modalStatus').value = 'occupied';
+            }
+        };
+
+        window.closeModal = function() {
+            document.getElementById('infoModal').style.display = 'none';
+            currentEditingKey = null;
+        };
+
+        window.saveModalData = function() {
+            if (currentEditingKey) {
+                const palletVal = document.getElementById('modalPallet').value;
+                const statusVal = document.getElementById('modalStatus').value;
+                const inputElements = document.querySelectorAll('.item-input');
+                let itemsVal = Array.from(inputElements).map(input => input.value.trim()).filter(v => v !== '');
+                if (itemsVal.length === 0) itemsVal = ['-'];
+
+                const targetRef = ref(db, `warehouse/${currentEditingKey}`);
+                set(targetRef, {
+                    ...warehouseData[currentEditingKey],
+                    pallet: palletVal,
+                    items: itemsVal,
+                    status: statusVal
+                }).then(() => {
+                    window.closeModal();
+                }).catch((error) => {
+                    alert('저장 실패: ' + error.message);
+                });
+            }
+        };
+
+        // 실행
+        initDefaultData();
+        listenRealtimeData();
+    </script>
 
     <style>
         body {
@@ -38,7 +307,7 @@
         .sync-status {
             text-align: center;
             font-size: 13px;
-            color: #28a745;
+            color: #007bff;
             margin-bottom: 15px;
             font-weight: bold;
         }
@@ -110,30 +379,11 @@
             background-color: #f8f9fa;
         }
 
-        .slot.aisle {
-            background-color: #d4edda;
-            border-color: #c3e6cb;
-            color: #155724;
-        }
-        .slot.empty {
-            background-color: #fff3cd;
-            border-color: #ffeeba;
-            color: #856404;
-        }
-        .slot.occupied {
-            background-color: #d1ecf1;
-            border-color: #bee5eb;
-            color: #0c5460;
-        }
-        .slot.defect {
-            background-color: #f8d7da;
-            border-color: #f5c6cb;
-            color: #721c24;
-        }
-        .slot.drag-over {
-            border: 2px dashed #007bff;
-            background-color: #e2e3e5;
-        }
+        .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .slot.empty { background-color: #fff3cd; border-color: #ffeeba; color: #856404; }
+        .slot.occupied { background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        .slot.defect { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .slot.drag-over { border: 2px dashed #007bff; background-color: #e2e3e5; }
 
         .legend-container {
             display: flex;
@@ -142,19 +392,9 @@
             margin-bottom: 15px;
             font-size: 13px;
         }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .legend-box {
-            width: 18px;
-            height: 18px;
-            border-radius: 3px;
-            border: 1px solid #ccc;
-        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-box { width: 18px; height: 18px; border-radius: 3px; border: 1px solid #ccc; }
 
-        /* 모달 팝업 스타일 */
         .modal {
             display: none;
             position: fixed;
@@ -210,9 +450,7 @@
             transition: background-color 0.2s ease;
             white-space: nowrap;
         }
-        .btn-delete:hover {
-            background-color: #a73a45;
-        }
+        .btn-delete:hover { background-color: #a73a45; }
         .btn-add-item {
             background-color: #28a745;
             color: white;
@@ -223,35 +461,20 @@
             font-weight: bold;
             cursor: pointer;
         }
-        .btn-add-item:hover {
-            background-color: #218838;
-        }
+        .btn-add-item:hover { background-color: #218838; }
 
-        .modal-buttons {
-            text-align: right;
-            margin-top: 22px;
-        }
-        .btn {
-            padding: 6px 14px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
+        .modal-buttons { text-align: right; margin-top: 22px; }
+        .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; }
         .btn-primary { background: #007bff; color: white; }
         .btn-secondary { background: #6c757d; color: white; margin-right: 5px; }
 
-        .instructions {
-            margin-top: 20px;
-            font-size: 13px;
-            color: #666;
-            text-align: center;
-        }
+        .instructions { margin-top: 20px; font-size: 13px; color: #666; text-align: center; }
     </style>
 </head>
 <body>
 
     <h2>창고 전체 메자닌 선반 실시간 재고 관리</h2>
-    <div class="sync-status" id="syncStatus">🔄 서버 연결 중...</div>
+    <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
     <div class="legend-container">
         <div class="legend-item"><div class="legend-box" style="background:#d1ecf1; border-color:#bee5eb;"></div> 재고 있음</div>
@@ -263,7 +486,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 모든 사용자의 화면이 실시간으로 동기화됩니다. 드래그 앤 드롭 및 상세 수정을 해보세요!
+        💡 최신 모듈러 방식으로 안정적인 실시간 동기화를 지원합니다.
     </div>
 
     <!-- 상세 정보 팝업 모달 -->
@@ -282,9 +505,7 @@
             
             <p>
                 <strong>제품명 목록:</strong>
-                <div class="item-list-container" id="itemListContainer">
-                    <!-- 동적 제품명 입력 필드들 -->
-                </div>
+                <div class="item-list-container" id="itemListContainer"></div>
             </p>
 
             <p>
@@ -303,289 +524,5 @@
             </div>
         </div>
     </div>
-
-    <script>
-        // Firebase 설정 (제공해주신 Realtime Database 주소 연동)
-        const firebaseConfig = {
-            databaseURL: "https://warehouse-bs-5e863-default-rtdb.firebaseio.com/"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const dbRef = firebase.database().ref('warehouse');
-
-        let warehouseData = {};
-        let currentEditingKey = null;
-        let draggedSourceKey = null;
-
-        const totalRacks = 6;
-        const aisleRacks = [2, 5]; // 2구역, 5구역은 통로
-
-        // 최초 기본 데이터 생성 (DB가 비어있을 경우에만 초기화)
-        function initDefaultData() {
-            dbRef.once('value', (snapshot) => {
-                if (!snapshot.exists()) {
-                    let initialData = {};
-                    for (let r = 1; r <= totalRacks; r++) {
-                        let isAisle = aisleRacks.includes(r);
-                        for (let tier = 3; tier >= 1; tier--) {
-                            for (let col = 1; col <= 14; col++) {
-                                let key = `R${r}-${tier}-${col}`;
-                                let val = '';
-                                let status = 'occupied';
-
-                                if (isAisle) {
-                                    val = '';
-                                    status = 'aisle';
-                                } else {
-                                    val = (col % 3 === 0) ? 'x' : (r * 10 + col);
-                                    if (col === 5 && r === 3) val = '불량';
-
-                                    if (val === 'x' || val === '') {
-                                        status = 'empty';
-                                        val = 'x';
-                                    } else if (val === '불량') {
-                                        status = 'defect';
-                                    } else {
-                                        status = 'occupied';
-                                    }
-                                }
-
-                                initialData[key] = {
-                                    rack: r,
-                                    tier: tier,
-                                    col: col,
-                                    pallet: val,
-                                    items: [val && val !== 'x' ? `제품-${val}` : '-'],
-                                    status: status
-                                };
-                            }
-                        }
-                    }
-                    dbRef.set(initialData);
-                }
-            });
-        }
-
-        // Firebase 실시간 리스너 연결 (데이터 변경 시 자동 렌더링)
-        function listenRealtimeData() {
-            dbRef.on('value', (snapshot) => {
-                const data = snapshot.val();
-                if (data) {
-                    warehouseData = data;
-                    renderWarehouse();
-                    document.getElementById('syncStatus').innerText = "🟢 실시간 동기화 연결됨";
-                }
-            }, (error) => {
-                document.getElementById('syncStatus').innerText = "🔴 연결 오류: " + error.message;
-                document.getElementById('syncStatus'].style.color = "red";
-            });
-        }
-
-        function renderWarehouse() {
-            const container = document.getElementById('allRacks');
-            container.innerHTML = '';
-
-            for (let r = 1; r <= totalRacks; r++) {
-                let isAisle = aisleRacks.includes(r);
-
-                const rackDiv = document.createElement('div');
-                rackDiv.className = `rack-section ${isAisle ? 'aisle-section' : ''}`;
-                
-                const titleDiv = document.createElement('div');
-                titleDiv.className = `rack-title ${isAisle ? 'aisle-title' : ''}`;
-                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 제 ${r} 구역 메자닌 선반 ]`;
-                rackDiv.appendChild(titleDiv);
-
-                for (let tier = 3; tier >= 1; tier--) {
-                    const tierDiv = document.createElement('div');
-                    tierDiv.className = 'shelf-tier';
-
-                    const labelDiv = document.createElement('div');
-                    labelDiv.className = 'tier-label';
-                    labelDiv.innerText = `${tier}층`;
-                    tierDiv.appendChild(labelDiv);
-
-                    const gridDiv = document.createElement('div');
-                    gridDiv.className = 'grid-14';
-
-                    for (let col = 1; col <= 14; col++) {
-                        let key = `R${r}-${tier}-${col}`;
-                        let data = warehouseData[key];
-                        if (!data) continue;
-
-                        const slot = document.createElement('div');
-                        slot.className = `slot ${data.status}`;
-                        slot.innerText = data.pallet;
-                        
-                        const hasValue = data.pallet !== '' && data.pallet !== 'x';
-                        slot.setAttribute('draggable', hasValue);
-                        slot.dataset.key = key;
-
-                        slot.addEventListener('dragstart', handleDragStart);
-                        slot.addEventListener('dragover', handleDragOver);
-                        slot.addEventListener('dragleave', handleDragLeave);
-                        slot.addEventListener('drop', handleDrop);
-                        slot.addEventListener('click', () => openModal(key));
-
-                        gridDiv.appendChild(slot);
-                    }
-                    tierDiv.appendChild(gridDiv);
-                    rackDiv.appendChild(tierDiv);
-                }
-                container.appendChild(rackDiv);
-            }
-        }
-
-        function handleDragStart(e) {
-            draggedSourceKey = e.target.dataset.key;
-            e.dataTransfer.setData('text/plain', draggedSourceKey);
-        }
-
-        function handleDragOver(e) {
-            e.preventDefault();
-            e.currentTarget.classList.add('drag-over');
-        }
-
-        function handleDragLeave(e) {
-            e.currentTarget.classList.remove('drag-over');
-        }
-
-        // 드래그 앤 드롭 완료 시 Firebase에 즉시 반영
-        function handleDrop(e) {
-            e.preventDefault();
-            const targetKey = e.currentTarget.dataset.key;
-            e.currentTarget.classList.remove('drag-over');
-
-            if (draggedSourceKey && draggedSourceKey !== targetKey) {
-                let srcData = warehouseData[draggedSourceKey];
-                let targetData = warehouseData[targetKey];
-
-                let srcIsAisle = aisleRacks.includes(srcData.rack);
-                let targetIsAisle = aisleRacks.includes(targetData.rack);
-
-                let updates = {};
-                updates[targetKey + '/pallet'] = srcData.pallet;
-                updates[targetKey + '/items'] = srcData.items;
-                updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
-
-                updates[draggedSourceKey + '/pallet'] = srcIsAisle ? '' : 'x';
-                updates[draggedSourceKey + '/items'] = ['-'];
-                updates[draggedSourceKey + '/status'] = srcIsAisle ? 'aisle' : 'empty';
-
-                dbRef.update(updates);
-            }
-        }
-
-        function openModal(key) {
-            currentEditingKey = key;
-            let data = warehouseData[key];
-
-            let locationName = aisleRacks.includes(data.rack) 
-                ? `통로 ${data.rack} / ${data.tier}층 / ${data.col}열`
-                : `제 ${data.rack}구역 / ${data.tier}층 / ${data.col}열`;
-
-            document.getElementById('modalTitle').innerText = locationName;
-            document.getElementById('modalLoc').innerText = locationName;
-            document.getElementById('modalPallet').value = data.pallet;
-            document.getElementById('modalStatus').value = data.status;
-
-            renderItemList(data.items || ['-']);
-            document.getElementById('infoModal').style.display = 'flex';
-        }
-
-        function renderItemList(items) {
-            const container = document.getElementById('itemListContainer');
-            container.innerHTML = '';
-            
-            items.forEach((item, index) => {
-                const row = document.createElement('div');
-                row.className = 'input-row';
-                
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = item;
-                input.className = 'item-input';
-                row.appendChild(input);
-
-                const delBtn = document.createElement('button');
-                delBtn.type = 'button';
-                delBtn.className = 'btn-delete';
-                delBtn.innerText = '삭제';
-                delBtn.onclick = () => removeItemRow(index);
-                row.appendChild(delBtn);
-
-                if (index === 0) {
-                    const addBtn = document.createElement('button');
-                    addBtn.type = 'button';
-                    addBtn.className = 'btn-add-item';
-                    addBtn.innerText = '+';
-                    addBtn.onclick = addItemRow;
-                    row.appendChild(addBtn);
-                }
-
-                container.appendChild(row);
-            });
-        }
-
-        function addItemRow() {
-            const inputs = document.querySelectorAll('.item-input');
-            let currentItems = Array.from(inputs).map(input => input.value);
-            currentItems.push('');
-            renderItemList(currentItems);
-        }
-
-        function removeItemRow(index) {
-            const inputs = document.querySelectorAll('.item-input');
-            let currentItems = Array.from(inputs).map(input => input.value);
-            currentItems.splice(index, 1);
-            if (currentItems.length === 0) currentItems.push('-');
-            renderItemList(currentItems);
-        }
-
-        function clearPalletField() {
-            document.getElementById('modalPallet').value = 'x';
-            document.getElementById('modalStatus').value = 'empty';
-            renderItemList(['-']);
-        }
-
-        function handlePalletInput(val) {
-            if (val === 'x' || val === '') {
-                document.getElementById('modalStatus').value = 'empty';
-            } else if (val.length > 0) {
-                document.getElementById('modalStatus').value = 'occupied';
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('infoModal').style.display = 'none';
-            currentEditingKey = null;
-        }
-
-        // 저장 시 Firebase 데이터베이스에 반영 ➔ 모든 접속자 화면 실시간 동기화
-        function saveModalData() {
-            if (currentEditingKey) {
-                const palletVal = document.getElementById('modalPallet').value;
-                const statusVal = document.getElementById('modalStatus').value;
-                const inputElements = document.querySelectorAll('.item-input');
-                let itemsVal = Array.from(inputElements).map(input => input.value.trim()).filter(v => v !== '');
-                if (itemsVal.length === 0) itemsVal = ['-'];
-
-                dbRef.child(currentEditingKey).update({
-                    pallet: palletVal,
-                    items: itemsVal,
-                    status: statusVal
-                }, (error) => {
-                    if (error) {
-                        alert('저장 실패: ' + error.message);
-                    } else {
-                        closeModal();
-                    }
-                });
-            }
-        }
-
-        // 실행
-        initDefaultData();
-        listenRealtimeData();
-    </script>
 </body>
 </html>
