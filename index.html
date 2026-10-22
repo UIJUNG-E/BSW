@@ -341,7 +341,7 @@
             currentEditingKey = null;
         };
 
-        // 저장 시 파레트 번호에 일치하는 엑셀 C열 데이터를 자동으로 가져와 컬렉션명 칸에 채워넣음
+        // 저장 시 파레트 번호에 일치하는 엑셀 C열 데이터를 자동으로 가져와 채워넣음
         window.saveModalData = function() {
             if (currentEditingKey) {
                 const statusVal = document.getElementById('modalStatus').value;
@@ -353,13 +353,13 @@
                 const inputElements = document.querySelectorAll('.item-input');
                 let itemsVal = Array.from(inputElements).map(input => input.value.trim()).filter(v => v !== '');
 
-                // 컬렉션명이 비어있고 엑셀 데이터가 있다면 C열(제품명) 데이터 자동 검색
+                // 입력된 컬렉션명이 없고 엑셀 데이터가 있다면 C열(제품명) 데이터를 자동 검색하여 채움
                 if ((itemsVal.length === 0 || itemsVal[0] === '') && window.excelRawData && window.excelRawData.length > 0) {
                     let matchedNames = [];
                     palletsVal.forEach(pNo => {
                         let found = window.excelRawData.find(row => row.pallet === pNo);
-                        if (found && found.name) {
-                            matchedNames.push(found.name);
+                        if (found && found.itemName) {
+                            matchedNames.push(found.itemName);
                         }
                     });
                     if (matchedNames.length > 0) {
@@ -400,16 +400,16 @@
                     window.excelRawData = [];
                     rows.forEach((r, idx) => {
                         if (idx === 0) return;
-                        let palletNo = r[0]; // A열: 파레트 번호 (인덱스 0)
-                        let itemName = r[2]; // C열: 제품명 (인덱스 2) -> 수정완료
-                        let colorName = r[3]; // D열: 색상 (인덱스 3)
-                        let sizeName = r[4];  // E열: 사이즈 (인덱스 4)
+                        let palletNo = r[0];      // A열: 파레트 번호 (인덱스 0)
+                        let itemName = r[2];      // C열: 제품명 (인덱스 2)
+                        let colorName = r[3];     // D열: 색상 (인덱스 3)
+                        let sizeName = r[4];      // E열: 사이즈 (인덱스 4)
                         let qty = Number(r[5]) || 0; // F열: 수량 (인덱스 5)
 
                         if (palletNo !== undefined && palletNo !== null && String(palletNo).trim() !== '') {
                             window.excelRawData.push({
                                 pallet: String(palletNo).trim(),
-                                name: itemName ? String(itemName).trim() : '기타', // C열 제품명 저장
+                                itemName: itemName ? String(itemName).trim() : '기타', // C열 제품명
                                 color: colorName ? String(colorName).trim() : '-',
                                 size: sizeName ? String(sizeName).trim() : 'Free',
                                 qty: qty
@@ -464,10 +464,10 @@
                 } else {
                     let summaryMap = {};
                     filteredRows.forEach(row => {
-                        let key = `${row.name}_${row.color}_${row.size}`;
+                        let key = `${row.itemName}_${row.color}_${row.size}`;
                         if (!summaryMap[key]) {
                             summaryMap[key] = {
-                                name: row.name,
+                                itemName: row.itemName,
                                 color: row.color,
                                 size: row.size,
                                 totalQty: 0
@@ -495,7 +495,7 @@
                         totalGrandQty += sum.totalQty;
                         html += `
                             <tr style="border-bottom:1px solid #eee;">
-                                <td style="padding:8px;">${sum.name}</td>
+                                <td style="padding:8px;">${sum.itemName}</td>
                                 <td style="padding:8px; text-align:center;">${sum.color}</td>
                                 <td style="padding:8px; text-align:center;">${sum.size}</td>
                                 <td style="padding:8px; text-align:right; font-weight:bold; color:#007bff;">${sum.totalQty.toLocaleString()} 개</td>
@@ -792,7 +792,7 @@
             </p>
 
             <p>
-                <strong>제품명:</strong>
+                <strong>컬렉션 명:</strong>
                 <div class="list-container" id="itemListContainer"></div>
             </p>
 
