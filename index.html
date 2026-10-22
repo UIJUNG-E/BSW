@@ -106,7 +106,7 @@
 
                     const searchVal = document.getElementById('palletSearchInput').value.trim();
                     if (searchVal) {
-                        searchPalletLocation(searchVal);
+                        searchPalletLocation(searchVal, false); // 실시간 동기화 시에는 스크롤 재이동 방지
                     }
                 } else {
                     syncStatus.innerText = "⚠️ 데이터가 비어있습니다.";
@@ -152,7 +152,6 @@
 
                         const slot = document.createElement('div');
                         
-                        // 가로 2개 단위로 쌍(Pair)을 구분하기 위한 계산 (0번 쌍: 1,2열 / 1번 쌍: 3,4열...)
                         let pairIndex = Math.floor((col - 1) / 2);
                         let pairClass = (pairIndex % 2 === 0) ? 'pair-a' : 'pair-b';
 
@@ -228,7 +227,8 @@
             }
         }
 
-        window.searchPalletLocation = function(query) {
+        // 파레트 번호 검색 및 화면 중앙 자동 스크롤 함수
+        window.searchPalletLocation = function(query, shouldScroll = true) {
             const q = query.trim().toLowerCase();
             const resultDiv = document.getElementById('searchResultText');
 
@@ -241,6 +241,7 @@
             }
 
             let foundLocations = [];
+            let firstMatchedKey = null;
 
             Object.keys(warehouseData).forEach(key => {
                 let data = warehouseData[key];
@@ -248,6 +249,8 @@
                     let matched = data.pallets.some(p => String(p).toLowerCase() === q);
                     if (matched) {
                         foundLocations.push(data);
+                        if (!firstMatchedKey) firstMatchedKey = key;
+
                         const slotElem = document.getElementById(`slot-${key}`);
                         if (slotElem) {
                             slotElem.classList.add('highlight-slot');
@@ -263,6 +266,14 @@
                 });
                 resultDiv.innerHTML = `📍 검색결과: <strong style="color:#0056b3;">[ ${query} ]</strong> ➔ ${textArr.join(' | ')}`;
                 resultDiv.style.color = "#28a745";
+
+                // 사용자가 키보드로 검색어를 입력할 때만 해당 슬롯을 화면 정중앙으로 스크롤 이동
+                if (shouldScroll && firstMatchedKey) {
+                    const targetSlot = document.getElementById(`slot-${firstMatchedKey}`);
+                    if (targetSlot) {
+                        targetSlot.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                    }
+                }
             } else {
                 resultDiv.innerHTML = `⚠️ 창고 내에서 파레트 번호 <strong style="color:#dc3545;">[ ${query} ]</strong>를 찾을 수 없습니다.`;
                 resultDiv.style.color = "#dc3545";
@@ -685,19 +696,25 @@
             margin-bottom: 10px;
             font-weight: bold;
         }
+        /* 상단 바 영역 고정 (Sticky) 스타일 적용 */
         .top-bar-container {
+            position: sticky;
+            top: 0;
+            z-index: 100;
             display: flex;
             flex-direction: column;
             gap: 10px;
             max-width: 1000px;
             margin: 0 auto 15px auto;
+            background: #f4f6f9;
+            padding-bottom: 10px;
         }
         .excel-upload-bar, .search-bar {
             text-align: center;
             background: #fff;
             padding: 12px;
             border-radius: 6px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.08);
             font-size: 13px;
             display: flex;
             justify-content: center;
@@ -802,20 +819,15 @@
             pointer-events: auto !important;
         }
 
-        /* [추가됨] 실제 파레트 적재 구조에 맞추어 가로 2개씩(짝수/홀수 쌍) 명암을 교차 적용 */
-        /* 재고 있음 (occupied) */
         .slot.occupied.pair-a { background-color: #cbecee; border-color: #9acfd4; color: #0c5460; }
         .slot.occupied.pair-b { background-color: #e2f4f6; border-color: #b8e2e6; color: #0c5460; }
 
-        /* 재고 없음 (empty / x) */
         .slot.empty.pair-a { background-color: #faeab9; border-color: #f3dc95; color: #856404; }
         .slot.empty.pair-b { background-color: #fdf5df; border-color: #faecc3; color: #856404; }
 
-        /* 통로/복도 (aisle) */
         .slot.aisle.pair-a { background-color: #c3ebd0; border-color: #a3dfb5; color: #155724; }
         .slot.aisle.pair-b { background-color: #e5f7ea; border-color: #c9eccf; color: #155724; }
 
-        /* 불량 (defect) */
         .slot.defect.pair-a { background-color: #f5c2c7; border-color: #f1aeb5; color: #721c24; }
         .slot.defect.pair-b { background-color: #fcd8db; border-color: #f5c2c7; color: #721c24; }
 
@@ -937,6 +949,7 @@
     <h2>Fuxxing BS 창고 실시간 재고관리</h2>
     <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
+    <!-- 상단 바 구역 (화면 스크롤 시 상단에 고정됨) -->
     <div class="top-bar-container">
         <!-- 엑셀 업로드 바 -->
         <div class="excel-upload-bar">
@@ -953,7 +966,7 @@
         <div class="search-bar">
             <div>
                 🔍 <strong>파레트 번호 빠른 검색:</strong> 
-                <input type="text" id="palletSearchInput" placeholder="파레트 번호 입력..." oninput="searchPalletLocation(this.value)" style="margin-left: 8px;">
+                <input type="text" id="palletSearchInput" placeholder="파레트 번호 입력..." oninput="searchPalletLocation(this.value, true)" style="margin-left: 8px;">
             </div>
             <div id="searchResultText" style="font-size: 13px; color: #666; font-weight: bold;">
                 파레트 번호를 입력하세요.
@@ -971,7 +984,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 렉 선반 슬롯이 가로 2개 단위로 진하고 연한 색상이 교차되어 실제 파레트 적재 공간을 쉽게 파악할 수 있습니다.
+        💡 검색창에 파레트 번호를 입력하면 검색창은 고정된 채 해당 슬롯이 화면 정중앙으로 자동 이동합니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
