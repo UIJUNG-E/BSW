@@ -103,6 +103,12 @@
                     renderWarehouse();
                     syncStatus.innerText = "🟢 실시간 동기화 연결됨";
                     syncStatus.style.color = "#28a745";
+
+                    // 데이터 로드 후 검색창에 값이 있다면 하이라이트 유지 갱신
+                    const searchVal = document.getElementById('palletSearchInput').value.trim();
+                    if (searchVal) {
+                        searchPalletLocation(searchVal);
+                    }
                 } else {
                     syncStatus.innerText = "⚠️ 데이터가 비어있습니다.";
                 }
@@ -147,6 +153,7 @@
 
                         const slot = document.createElement('div');
                         slot.className = `slot ${data.status}`;
+                        slot.id = `slot-${key}`; // 검색 및 하이라이트용 ID 부여
                         
                         let displayPallet = '';
                         if (data.status === 'empty') {
@@ -209,6 +216,47 @@
                 container.appendChild(rackDiv);
             }
         }
+
+        // 파레트 번호 검색 및 슬롯 반짝임(Highlight) 처리 함수
+        window.searchPalletLocation = function(query) {
+            const q = query.trim().toLowerCase();
+            const resultDiv = document.getElementById('searchResultText');
+
+            // 기존 반짝임 효과 모두 제거
+            document.querySelectorAll('.slot').forEach(s => s.classList.remove('highlight-slot'));
+
+            if (!q) {
+                resultDiv.innerText = "파레트 번호를 입력하세요.";
+                resultDiv.style.color = "#666";
+                return;
+            }
+
+            let foundLocations = [];
+
+            Object.keys(warehouseData).forEach(key => {
+                let data = warehouseData[key];
+                if (data.pallets && Array.isArray(data.pallets)) {
+                    let matched = data.pallets.some(p => String(p).toLowerCase() === q);
+                    if (matched) {
+                        foundLocations.push(data);
+                        // 해당 슬롯에 반짝임 효과 클래스 추가
+                        const slotElem = document.getElementById(`slot-${key}`);
+                        if (slotElem) {
+                            slotElem.classList.add('highlight-slot');
+                        }
+                    }
+                }
+            });
+
+            if (foundLocations.length > 0) {
+                let textArr = foundLocations.map(loc => `제 ${loc.rack}구역 렉 선반 / ${loc.tier}층 / ${loc.col}열`);
+                resultDiv.innerHTML = `📍 검색결과: <strong style="color:#0056b3;">[ ${query} ]</strong> ➔ ${textArr.join(' | ')}`;
+                resultDiv.style.color = "#28a745";
+            } else {
+                resultDiv.innerHTML = `⚠️ 창고 내에서 파레트 번호 <strong style="color:#dc3545;">[ ${query} ]</strong>를 찾을 수 없습니다.`;
+                resultDiv.style.color = "#dc3545";
+            }
+        };
 
         function openModal(key) {
             currentEditingKey = key;
@@ -399,7 +447,6 @@
 
                 let statusVal = document.getElementById('modalStatus').value;
 
-                // [수정됨] 어떤 구역이든 유효한 파레트 번호가 입력되면 무조건 '재고 있음(occupied)'으로 자동 변경
                 let hasValidPallet = palletsVal.some(p => p !== '' && p !== 'x');
                 if (hasValidPallet && statusVal !== 'defect') {
                     statusVal = 'occupied';
@@ -594,6 +641,14 @@
             }
         });
 
+        // 페이지 로드 완료 시 상단 검색창에 자동으로 커서 활성화
+        window.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('palletSearchInput');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        });
+
         loadSavedExcelData();
         initDefaultData();
         listenRealtimeData();
@@ -617,12 +672,18 @@
             margin-bottom: 10px;
             font-weight: bold;
         }
-        .excel-upload-bar {
+        .top-bar-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 1000px;
+            margin: 0 auto 15px auto;
+        }
+        .excel-upload-bar, .search-bar {
             text-align: center;
             background: #fff;
             padding: 12px;
             border-radius: 6px;
-            margin-bottom: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             font-size: 13px;
             display: flex;
@@ -630,6 +691,34 @@
             align-items: center;
             gap: 15px;
         }
+        .search-bar {
+            background: #eef2f7;
+            border: 1px solid #d1d8e0;
+        }
+        .search-bar input {
+            height: 28px;
+            width: 220px;
+            border: 1px solid #a4b0be;
+            border-radius: 4px;
+            padding: 0 10px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #2f3640;
+        }
+
+        /* 슬롯 검색 시 반짝이는 애니메이션 효과 스타일 */
+        @keyframes slotBlink {
+            0% { background-color: #ff4757; transform: scale(1); box-shadow: 0 0 5px #ff4757; }
+            50% { background-color: #ffa502; transform: scale(1.12); box-shadow: 0 0 15px #ffa502; }
+            100% { background-color: #ff4757; transform: scale(1); box-shadow: 0 0 5px #ff4757; }
+        }
+        .highlight-slot {
+            animation: slotBlink 0.8s infinite ease-in-out;
+            z-index: 10;
+            border: 2px solid #fff !important;
+            color: #fff !important;
+        }
+
         .all-racks-container {
             display: flex;
             flex-direction: column;
@@ -824,13 +913,27 @@
     <h2>Fuxxing BS 창고 실시간 재고관리</h2>
     <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
-    <div class="excel-upload-bar">
-        <div>
-            📊 <strong>재고 엑셀 업로드:</strong> 
-            <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)" style="margin-left: 8px;">
+    <div class="top-bar-container">
+        <!-- 엑셀 업로드 바 -->
+        <div class="excel-upload-bar">
+            <div>
+                📊 <strong>재고 엑셀 업로드:</strong> 
+                <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)" style="margin-left: 8px;">
+            </div>
+            <div id="excelStatusText" style="font-weight: bold; color: #dc3545; font-size: 12px;">
+                ⚠️ 업로드된 엑셀 파일 없음
+            </div>
         </div>
-        <div id="excelStatusText" style="font-weight: bold; color: #dc3545; font-size: 12px;">
-            ⚠️ 업로드된 엑셀 파일 없음
+
+        <!-- 파레트 번호 실시간 검색 바 -->
+        <div class="search-bar">
+            <div>
+                🔍 <strong>파레트 번호 빠른 검색:</strong> 
+                <input type="text" id="palletSearchInput" placeholder="파레트 번호 입력..." oninput="searchPalletLocation(this.value)" style="margin-left: 8px;">
+            </div>
+            <div id="searchResultText" style="font-size: 13px; color: #666; font-weight: bold;">
+                파레트 번호를 입력하세요.
+            </div>
         </div>
     </div>
 
@@ -844,7 +947,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 어느 구역이든 파레트 번호를 입력하고 저장하면 상태가 자동으로 '재고 있음'으로 변경됩니다.
+        💡 상단 검색창에 파레트 번호를 입력하면 해당 위치가 표시되고 슬롯이 반짝입니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
