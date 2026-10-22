@@ -104,7 +104,6 @@
                     syncStatus.innerText = "🟢 실시간 동기화 연결됨";
                     syncStatus.style.color = "#28a745";
 
-                    // 데이터 로드 후 검색창에 값이 있다면 하이라이트 유지 갱신
                     const searchVal = document.getElementById('palletSearchInput').value.trim();
                     if (searchVal) {
                         searchPalletLocation(searchVal);
@@ -153,7 +152,7 @@
 
                         const slot = document.createElement('div');
                         slot.className = `slot ${data.status}`;
-                        slot.id = `slot-${key}`; // 검색 및 하이라이트용 ID 부여
+                        slot.id = `slot-${key}`;
                         
                         let displayPallet = '';
                         if (data.status === 'empty') {
@@ -179,6 +178,8 @@
                         slot.addEventListener('dragleave', (e) => {
                             e.currentTarget.classList.remove('drag-over');
                         });
+                        
+                        // [수정됨] 드래그 앤 드롭 시 위치 맞교환(Swap) 로직 적용
                         slot.addEventListener('drop', (e) => {
                             e.preventDefault();
                             const targetKey = e.currentTarget.dataset.key;
@@ -188,17 +189,16 @@
                                 let srcData = warehouseData[draggedSourceKey];
                                 let targetData = warehouseData[targetKey];
 
-                                let srcIsAisle = aisleRacks.includes(srcData.rack);
-                                let targetIsAisle = aisleRacks.includes(targetData.rack);
-
                                 let updates = {};
+
+                                // 출발지와 목적지의 데이터를 서로 맞교환 (Swap)
                                 updates[targetKey + '/pallets'] = srcData.pallets;
                                 updates[targetKey + '/items'] = srcData.items;
-                                updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
+                                updates[targetKey + '/status'] = srcData.status;
 
-                                updates[draggedSourceKey + '/pallets'] = srcIsAisle ? [''] : ['x'];
-                                updates[draggedSourceKey + '/items'] = ['-'];
-                                updates[draggedSourceKey + '/status'] = srcIsAisle ? 'aisle' : 'empty';
+                                updates[draggedSourceKey + '/pallets'] = targetData.pallets;
+                                updates[draggedSourceKey + '/items'] = targetData.items;
+                                updates[draggedSourceKey + '/status'] = targetData.status;
 
                                 update(dbRef, updates);
                             }
@@ -217,12 +217,10 @@
             }
         }
 
-        // 파레트 번호 검색 및 슬롯 반짝임(Highlight) 처리 함수
         window.searchPalletLocation = function(query) {
             const q = query.trim().toLowerCase();
             const resultDiv = document.getElementById('searchResultText');
 
-            // 기존 반짝임 효과 모두 제거
             document.querySelectorAll('.slot').forEach(s => s.classList.remove('highlight-slot'));
 
             if (!q) {
@@ -239,7 +237,6 @@
                     let matched = data.pallets.some(p => String(p).toLowerCase() === q);
                     if (matched) {
                         foundLocations.push(data);
-                        // 해당 슬롯에 반짝임 효과 클래스 추가
                         const slotElem = document.getElementById(`slot-${key}`);
                         if (slotElem) {
                             slotElem.classList.add('highlight-slot');
@@ -641,7 +638,6 @@
             }
         });
 
-        // 페이지 로드 완료 시 상단 검색창에 자동으로 커서 활성화
         window.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('palletSearchInput');
             if (searchInput) {
@@ -706,7 +702,6 @@
             color: #2f3640;
         }
 
-        /* 슬롯 검색 시 반짝이는 애니메이션 효과 스타일 */
         @keyframes slotBlink {
             0% { background-color: #ff4757; transform: scale(1); box-shadow: 0 0 5px #ff4757; }
             50% { background-color: #ffa502; transform: scale(1.12); box-shadow: 0 0 15px #ffa502; }
@@ -947,7 +942,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 상단 검색창에 파레트 번호를 입력하면 해당 위치가 표시되고 슬롯이 반짝입니다.
+        💡 슬롯을 드래그하여 다른 슬롯에 놓으면 두 위치의 재고 정보가 서로 맞교환(Swap)됩니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
