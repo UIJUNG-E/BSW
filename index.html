@@ -197,7 +197,6 @@
                             }
                         });
 
-                        // 모든 슬롯에 클릭 이벤트가 예외 없이 확실히 작동하도록 보장
                         slot.addEventListener('click', () => {
                             openModal(key);
                         });
@@ -229,6 +228,15 @@
             renderItemList(derivedCollections);
 
             document.getElementById('infoModal').style.display = 'flex';
+
+            // 모달 열릴 때 첫 번째 파레트 입력란에 커서(포커스) 자동 지정
+            setTimeout(() => {
+                const firstPalletInput = document.querySelector('.pallet-input');
+                if (firstPalletInput) {
+                    firstPalletInput.focus();
+                    firstPalletInput.select();
+                }
+            }, 50);
         }
 
         function autoDetectCollections(pallets) {
@@ -564,6 +572,30 @@
             document.getElementById('excelDetailModal').style.display = 'none';
         };
 
+        // 키보드 단축키 이벤트 (Enter로 저장, ESC로 취소/닫기)
+        window.addEventListener('keydown', function(e) {
+            const infoModal = document.getElementById('infoModal');
+            const excelDetailModal = document.getElementById('excelDetailModal');
+
+            if (e.key === 'Escape') {
+                if (excelDetailModal.style.display === 'flex') {
+                    window.closeDetailModal();
+                } else if (infoModal.style.display === 'flex') {
+                    window.closeModal();
+                }
+            }
+
+            if (e.key === 'Enter') {
+                if (infoModal.style.display === 'flex' && excelDetailModal.style.display !== 'flex') {
+                    // 입력 중에 엔터를 누를 때 자연스럽게 저장되도록 처리
+                    if (document.activeElement.tagName === 'INPUT') {
+                        window.saveModalData();
+                        e.preventDefault();
+                    }
+                }
+            }
+        });
+
         loadSavedExcelData();
         initDefaultData();
         listenRealtimeData();
@@ -669,7 +701,7 @@
             transition: all 0.2s;
             background-color: #f8f9fa;
             padding: 2px;
-            pointer-events: auto !important; /* 클릭 이벤트가 막히지 않도록 강제 설정 */
+            pointer-events: auto !important;
         }
 
         .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
@@ -769,7 +801,7 @@
         .btn-detail {
             background-color: #17a2b8;
             color: white;
-            border:, none;
+            border: none;
             border-radius: 6px;
             padding: 8px 14px;
             font-size: 13px;
@@ -814,7 +846,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 모든 슬롯(빈 슬롯 포함)을 클릭하여 파레트 등록 및 상세 관리를 수행할 수 있습니다.
+        💡 1번 모달창에서 엔터(Enter)로 저장, ESC로 취소가 가능합니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
