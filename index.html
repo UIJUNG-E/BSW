@@ -163,8 +163,9 @@
                         }
                         slot.innerText = displayPallet;
                         
+                        // 통로 구역을 포함하여 내용물이 있거나 드래그 가능한 상태 설정
                         const hasValue = displayPallet !== '' && displayPallet !== 'x';
-                        slot.setAttribute('draggable', hasValue);
+                        slot.setAttribute('draggable', true); // 모든 슬롯 드래그 가능하도록 허용
                         slot.dataset.key = key;
 
                         slot.addEventListener('dragstart', (e) => {
@@ -179,7 +180,7 @@
                             e.currentTarget.classList.remove('drag-over');
                         });
                         
-                        // [수정됨] 드래그 앤 드롭 시 위치 맞교환(Swap) 로직 적용
+                        // [수정됨] 통로 슬롯을 포함하여 드롭 시 두 슬롯의 데이터를 완벽하게 맞교환(Swap)
                         slot.addEventListener('drop', (e) => {
                             e.preventDefault();
                             const targetKey = e.currentTarget.dataset.key;
@@ -191,7 +192,6 @@
 
                                 let updates = {};
 
-                                // 출발지와 목적지의 데이터를 서로 맞교환 (Swap)
                                 updates[targetKey + '/pallets'] = srcData.pallets;
                                 updates[targetKey + '/items'] = srcData.items;
                                 updates[targetKey + '/status'] = srcData.status;
@@ -246,7 +246,10 @@
             });
 
             if (foundLocations.length > 0) {
-                let textArr = foundLocations.map(loc => `제 ${loc.rack}구역 렉 선반 / ${loc.tier}층 / ${loc.col}열`);
+                let textArr = foundLocations.map(loc => {
+                    let isAisleLoc = aisleRacks.includes(loc.rack);
+                    return isAisleLoc ? `통로 ${loc.rack} / ${loc.tier}층 / ${loc.col}열` : `제 ${loc.rack}구역 렉 선반 / ${loc.tier}층 / ${loc.col}열`;
+                });
                 resultDiv.innerHTML = `📍 검색결과: <strong style="color:#0056b3;">[ ${query} ]</strong> ➔ ${textArr.join(' | ')}`;
                 resultDiv.style.color = "#28a745";
             } else {
@@ -942,7 +945,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 슬롯을 드래그하여 다른 슬롯에 놓으면 두 위치의 재고 정보가 서로 맞교환(Swap)됩니다.
+        💡 렉 선반과 통로를 포함한 모든 슬롯 간 드래그 앤 드롭으로 위치를 자유롭게 교환할 수 있습니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
