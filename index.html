@@ -155,7 +155,6 @@
                         let pairIndex = Math.floor((col - 1) / 2);
                         let pairClass = (pairIndex % 2 === 0) ? 'pair-a' : 'pair-b';
 
-                        // 재고 있음(occupied)일 때만 가로 2개 교차 색상 적용, 나머지는 기본 상태 클래스 적용
                         if (data.status === 'occupied') {
                             slot.className = `slot ${data.status} ${pairClass}`;
                         } else {
@@ -822,11 +821,9 @@
             pointer-events: auto !important;
         }
 
-        /* 렉 선반 재고 있음(occupied)만 가로 2개씩 교차 색상 적용 */
         .slot.occupied.pair-a { background-color: #cbecee; border-color: #9acfd4; color: #0c5460; }
         .slot.occupied.pair-b { background-color: #e2f4f6; border-color: #b8e2e6; color: #0c5460; }
 
-        /* 나머지 상태들은 원래의 단색 색상 유지 */
         .slot.empty { background-color: #fff3cd; border-color: #ffeeba; color: #856404; }
         .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
         .slot.defect { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
@@ -974,7 +971,7 @@
     </div>
 
     <div class="legend-container">
-        <div class="legend-item"><div class="legend-box" style="background:#cbecee; border-color:#9acfd4;"></div> 재고 있음 (2개씩 교차)</div>
+        <div class="legend-item"><div class="legend-box" style="background:#cbecee; border-color:#9acfd4;"></div> 재고 있음</div>
         <div class="legend-item"><div class="legend-box" style="background:#fff3cd; border-color:#ffeeba;"></div> 재고 없음</div>
         <div class="legend-item"><div class="legend-box" style="background:#d4edda; border-color:#c3e6cb;"></div> 통로/복도</div>
         <div class="legend-item"><div class="legend-box" style="background:#f8d7da; border-color:#f5c6cb;"></div> 불량</div>
