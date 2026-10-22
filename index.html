@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>창고 메자닌 선반 실시간 재고 관리 (확장된 제품 상세)</title>
+    <title>창고 메자닌 선반 실시간 재고 관리 (엑셀 영구 유지)</title>
     
     <!-- SheetJS (엑셀 파일 읽기 라이브러리) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -24,8 +24,26 @@
         let currentEditingKey = null;
         let draggedSourceKey = null;
 
-        // 업로드된 엑셀 데이터를 저장할 전역 변수
+        // 업로드된 엑셀 데이터를 저장할 전역 변수 (브라우저 로컬스토리지 연동)
         window.excelRawData = [];
+
+        // 페이지 로드 시 브라우저 저장소(localStorage)에 저장된 엑셀 데이터 복원
+        function loadSavedExcelData() {
+            const savedData = localStorage.getItem('warehouse_excel_cache');
+            const savedFileName = localStorage.getItem('warehouse_excel_filename');
+            
+            if (savedData) {
+                try {
+                    window.excelRawData = JSON.parse(savedData);
+                    if (savedFileName) {
+                        document.getElementById('excelStatusText').innerText = `✅ [유지중] ${savedFileName} (총 ${window.excelRawData.length}건)`;
+                        document.getElementById('excelStatusText').style.color = "#28a745";
+                    }
+                } catch (e) {
+                    console.error("저장된 엑셀 캐시 복원 실패:", e);
+                }
+            }
+        }
 
         const totalRacks = 6;
         const aisleRacks = [2, 5];
@@ -341,7 +359,7 @@
             }
         };
 
-        // 엑셀 업로드 처리 (A열=파레트, C열=제품명, D열=색상, E열=사이즈, F열=수량)
+        // 엑셀 업로드 처리 및 로컬 스토리지에 영구 캐싱
         window.handleExcelUpload = function(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -359,11 +377,11 @@
                     window.excelRawData = [];
                     rows.forEach((r, idx) => {
                         if (idx === 0) return; // 첫 행 헤더 스킵
-                        let palletNo = r[0]; // A열 (인덱스 0)
-                        let itemName = r[2]; // C열 (인덱스 2)
-                        let colorName = r[3]; // D열 (인덱스 3)
-                        let sizeName = r[4];  // E열 (인덱스 4)
-                        let qty = Number(r[5]) || 0; // F열 (인덱스 5)
+                        let palletNo = r[0]; // A열
+                        let itemName = r[2]; // C열
+                        let colorName = r[3]; // D열
+                        let sizeName = r[4];  // E열
+                        let qty = Number(r[5]) || 0; // F열
 
                         if (palletNo !== undefined && palletNo !== null && String(palletNo).trim() !== '') {
                             window.excelRawData.push({
@@ -376,7 +394,14 @@
                         }
                     });
 
-                    alert(`엑셀 파일 로드 성공! 총 ${window.excelRawData.length}건의 데이터가 연동되었습니다.`);
+                    // 브라우저 저장소에 캐싱하여 새로고침해도 유지되도록 함
+                    localStorage.setItem('warehouse_excel_cache', JSON.stringify(window.excelRawData));
+                    localStorage.setItem('warehouse_excel_filename', file.name);
+
+                    document.getElementById('excelStatusText').innerText = `✅ [유지중] ${file.name} (총 ${window.excelRawData.length}건)`;
+                    document.getElementById('excelStatusText').style.color = "#28a745";
+
+                    alert(`엑셀 파일 업로드 및 저장 완료! (새로고침해도 유지됩니다)\n총 ${window.excelRawData.length}건`);
                 } catch (err) {
                     alert("엑셀 파일을 읽는 중 오류가 발생했습니다: " + err.message);
                 }
@@ -384,13 +409,12 @@
             reader.readAsArrayBuffer(file);
         };
 
-        // 확장된 새로운 큰 창(모달)을 열어 파레트별 상세 내역 및 서머리 표시
         window.openDetailModal = function() {
             const detailModalBody = document.getElementById('detailModalBody');
             const detailModalTitle = document.getElementById('detailModalTitle');
 
             if (!window.excelRawData || window.excelRawData.length === 0) {
-                alert("⚠️ 먼저 화면 상단에서 재고 엑셀 파일을 업로드해주세요!");
+                alert("⚠️ 업로드된 엑셀 재고 데이터가 없습니다. 상단에서 엑셀 파일을 먼저 업로드해주세요!");
                 return;
             }
 
@@ -414,9 +438,8 @@
                 html += `<div style="font-size: 15px; font-weight: bold; color: #0056b3; margin-bottom: 10px; border-bottom: 2px solid #007bff; padding-bottom: 6px;">파레트 번호: [ ${pNo} ]</div>`;
 
                 if (filteredRows.length === 0) {
-                    html += `<div style="color: #888; font-size: 13px; padding: 10px;">업로드된 엑셀 데이터 중 파레트 번호 [${pNo}]와 일치하는 내역이 없습니다.</div>`;
+                    html += `<div style="color: #888; font-size: 13px; padding: 10px;">저장된 엑셀 데이터 중 파레트 번호 [${pNo}]와 일치하는 내역이 없습니다.</div>`;
                 } else {
-                    // 제품명 + 색상 + 사이즈 별 수량 서머리
                     let summaryMap = {};
                     filteredRows.forEach(row => {
                         let key = `${row.item}_${row.color}_${row.size}`;
@@ -483,6 +506,8 @@
             document.getElementById('excelDetailModal').style.display = 'none';
         };
 
+        // 초기화 및 데이터 복원 실행
+        loadSavedExcelData();
         initDefaultData();
         listenRealtimeData();
     </script>
@@ -508,11 +533,15 @@
         .excel-upload-bar {
             text-align: center;
             background: #fff;
-            padding: 10px;
+            padding: 12px;
             border-radius: 6px;
             margin-bottom: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             font-size: 13px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
         }
         .all-racks-container {
             display: flex;
@@ -598,7 +627,6 @@
         .legend-item { display: flex; align-items: center; gap: 5px; }
         .legend-box { width: 18px; height: 18px; border-radius: 3px; border: 1px solid #ccc; }
 
-        /* 기본 모달 창 */
         .modal {
             display: none;
             position: fixed;
@@ -620,7 +648,6 @@
         .modal-content h3 { margin-top: 0; }
         .modal-content p { margin: 10px 0; }
         
-        /* 확장된 제품 상세 전용 대형 모달 창 */
         .large-modal-content {
             background: white;
             padding: 30px;
@@ -706,10 +733,15 @@
     <h2>창고 전체 메자닌 선반 실시간 재고 관리</h2>
     <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
-    <!-- 상단 엑셀 업로드 바구니 -->
+    <!-- 상단 엑셀 업로드 바구니 (유지 상태 표시 추가) -->
     <div class="excel-upload-bar">
-        📊 <strong>재고 데이터 엑셀 업로드:</strong> 
-        <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)" style="margin-left: 10px;">
+        <div>
+            📊 <strong>재고 엑셀 업로드:</strong> 
+            <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)" style="margin-left: 8px;">
+        </div>
+        <div id="excelStatusText" style="font-weight: bold; color: #dc3545; font-size: 12px;">
+            ⚠️ 업로드된 엑셀 파일 없음
+        </div>
     </div>
 
     <div class="legend-container">
@@ -722,7 +754,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 선반 슬롯 클릭 후 [제품 상세] 버튼을 누르면 넓은 화면에서 파레트별 상세 내역을 확인할 수 있습니다.
+        💡 업로드된 엑셀 데이터는 브라우저에 안전하게 저장되어 새로고침해도 유지됩니다. 새로운 파일로 덮어쓸 때만 교체됩니다.
     </div>
 
     <!-- 기본 로케이션 정보 수정 모달 -->
@@ -751,7 +783,6 @@
                 </select>
             </p>
 
-            <!-- 확장된 상세 창을 여는 버튼 -->
             <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 5px;">
                 <button type="button" class="btn-detail" onclick="openDetailModal()">📋 제품 상세 내역 크게 보기 (엑셀 서머리)</button>
             </div>
@@ -763,13 +794,11 @@
         </div>
     </div>
 
-    <!-- 엑셀 제품 상세 대형 모달 창 (새로운 화면 확장 팝업) -->
+    <!-- 엑셀 제품 상세 대형 모달 창 -->
     <div class="modal" id="excelDetailModal">
         <div class="large-modal-content">
             <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
-            <div id="detailModalBody" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;">
-                <!-- 파레트별 상세 표가 동적으로 들어오는 곳 -->
-            </div>
+            <div id="detailModalBody" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;"></div>
             <div style="text-align: right; margin-top: 20px;">
                 <button type="button" class="btn btn-primary" onclick="closeDetailModal()" style="padding: 8px 20px; font-size: 14px;">확인</button>
             </div>
