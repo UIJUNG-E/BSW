@@ -34,7 +34,7 @@
                 try {
                     window.excelRawData = JSON.parse(savedData);
                     if (savedFileName) {
-                        document.getElementById('excelStatusText').innerText = `✅ [유지중] ${savedFileName} (총 ${window.excelRawData.length}건)[cite: 1]`;
+                        document.getElementById('excelStatusText').innerText = `✅ [유지중] ${savedFileName} (총 ${window.excelRawData.length}건)`;
                         document.getElementById('excelStatusText').style.color = "#28a745";
                     }
                 } catch (e) {
@@ -196,7 +196,11 @@
                                 update(dbRef, updates);
                             }
                         });
-                        slot.addEventListener('click', () => openModal(key));
+
+                        // 모든 슬롯에 클릭 이벤트가 예외 없이 확실히 작동하도록 보장
+                        slot.addEventListener('click', () => {
+                            openModal(key);
+                        });
 
                         gridDiv.appendChild(slot);
                     }
@@ -217,11 +221,11 @@
 
             document.getElementById('modalTitle').innerText = locationName;
             document.getElementById('modalLoc').innerText = locationName;
-            document.getElementById('modalStatus').value = data.status;
+            document.getElementById('modalStatus').value = data.status || 'empty';
 
-            renderPalletList(data.pallets || ['']);
+            renderPalletList(data.pallets && data.pallets.length > 0 ? data.pallets : ['']);
 
-            let derivedCollections = autoDetectCollections(data.pallets);
+            let derivedCollections = autoDetectCollections(data.pallets || ['']);
             renderItemList(derivedCollections);
 
             document.getElementById('infoModal').style.display = 'flex';
@@ -388,7 +392,6 @@
 
                 let statusVal = document.getElementById('modalStatus').value;
 
-                // 유효한 파레트 번호가 입력되어 있으면 상태를 자동으로 '재고 있음(occupied)'으로 설정
                 let hasValidPallet = palletsVal.some(p => p !== '' && p !== 'x');
                 if (hasValidPallet && statusVal !== 'aisle' && statusVal !== 'defect') {
                     statusVal = 'occupied';
@@ -453,7 +456,7 @@
                     localStorage.setItem('warehouse_excel_cache', JSON.stringify(window.excelRawData));
                     localStorage.setItem('warehouse_excel_filename', file.name);
 
-                    document.getElementById('excelStatusText').innerText = `✅ [유지중] ${file.name} (총 ${window.excelRawData.length}건)[cite: 1]`;
+                    document.getElementById('excelStatusText').innerText = `✅ [유지중] ${file.name} (총 ${window.excelRawData.length}건)`;
                     document.getElementById('excelStatusText').style.color = "#28a745";
 
                     alert(`엑셀 파일 업로드 및 저장 완료!\n총 ${window.excelRawData.length}건`);
@@ -666,6 +669,7 @@
             transition: all 0.2s;
             background-color: #f8f9fa;
             padding: 2px;
+            pointer-events: auto !important; /* 클릭 이벤트가 막히지 않도록 강제 설정 */
         }
 
         .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
@@ -765,7 +769,7 @@
         .btn-detail {
             background-color: #17a2b8;
             color: white;
-            border: none;
+            border:, none;
             border-radius: 6px;
             padding: 8px 14px;
             font-size: 13px;
@@ -810,7 +814,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 파레트 번호를 입력하고 저장하면 상태가 자동으로 '재고 있음'으로 변경됩니다.
+        💡 모든 슬롯(빈 슬롯 포함)을 클릭하여 파레트 등록 및 상세 관리를 수행할 수 있습니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
