@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>백성창고 재고관리</title>
+    <title>Fuxxing BS 창고 실시간 재고관리</title>
     
     <!-- SheetJS (엑셀 파일 읽기 라이브러리) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -127,7 +127,7 @@
                 
                 const titleDiv = document.createElement('div');
                 titleDiv.className = `rack-title ${isAisle ? 'aisle-title' : ''}`;
-                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 백성창고 제 ${r} 구역 렉 선반 ]`;
+                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 제 ${r} 구역 렉 선반 ]`;
                 rackDiv.appendChild(titleDiv);
 
                 for (let tier = 3; tier >= 1; tier--) {
@@ -216,7 +216,7 @@
 
             let locationName = aisleRacks.includes(data.rack) 
                 ? `통로 ${data.rack} / ${data.tier}층 / ${data.col}열`
-                : `백성창고 제 ${data.rack}구역 / ${data.tier}층 / ${data.col}열`;
+                : `제 ${data.rack}구역 렉 선반 / ${data.tier}층 / ${data.col}열`;
 
             document.getElementById('modalTitle').innerText = locationName;
             document.getElementById('modalLoc').innerText = locationName;
@@ -738,7 +738,7 @@
 </head>
 <body>
 
-    <h2>백성창고 재고관리</h2>
+    <h2>Fuxxing BS 창고 실시간 재고관리</h2>
     <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
     <div class="excel-upload-bar">
@@ -774,7 +774,7 @@
                 <strong>파레트 번호 목록:</strong>
                 <div class="list-container" id="palletListContainer"></div>
             </p>
-            
+
             <p>
                 <strong>제품명 목록 (직접 입력):</strong>
                 <div class="list-container" id="itemListContainer"></div>
