@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>창고 메자닌 선반 실시간 재고 관리</title>
+    <title>창고 메자닌 선반 실시간 재고 관리 (엑셀 연동)</title>
     
     <!-- Firebase SDK v10 (Modular) 로드 -->
     <script type="module">
@@ -20,6 +20,9 @@
         let warehouseData = {};
         let currentEditingKey = null;
         let draggedSourceKey = null;
+
+        // 업로드된 엑셀 데이터를 저장할 변수
+        window.excelRawData = [];
 
         const totalRacks = 6;
         const aisleRacks = [2, 5];
@@ -59,7 +62,7 @@
                                     rack: r,
                                     tier: tier,
                                     col: col,
-                                    pallets: [val && val !== 'x' ? val : ''],
+                                    pallets: [val && val !== 'x' ? String(val) : ''],
                                     items: [val && val !== 'x' ? `제품-${val}` : '-'],
                                     status: status
                                 };
@@ -125,7 +128,6 @@
 
                         const slot = document.createElement('div');
                         slot.className = `slot ${data.status}`;
-                        // 배열 첫 번째 파레트 번호 표시 (여러 개면 대표로 표시)
                         let displayPallet = (data.pallets && data.pallets.length > 0 && data.pallets[0] !== '') ? data.pallets[0] : (data.status === 'empty' ? 'x' : '');
                         slot.innerText = displayPallet;
                         
@@ -193,10 +195,13 @@
 
             renderPalletList(data.pallets || ['']);
             renderItemList(data.items || ['-']);
+            
+            // 모달 열릴 때 기존 제품 상세 요약 초기화
+            document.getElementById('excelSummaryContainer').innerHTML = '<span style="color:#888; font-size:12px;">상단에서 엑셀 파일을 업로드한 뒤 [제품 상세] 버튼을 누르세요.</span>';
+
             document.getElementById('infoModal').style.display = 'flex';
         }
 
-        // 파레트 번호 동적 리스트 렌더링
         window.renderPalletList = function(pallets) {
             const container = document.getElementById('palletListContainer');
             container.innerHTML = '';
@@ -246,7 +251,6 @@
             window.renderPalletList(currentPallets);
         };
 
-        // 제품명 동적 리스트 렌더링
         window.renderItemList = function(items) {
             const container = document.getElementById('itemListContainer');
             container.innerHTML = '';
@@ -296,7 +300,6 @@
             window.renderItemList(currentItems);
         };
 
-        // 상태창 변경 시 '통로/복도' 선택하면 모든 입력창 자동 비우기
         window.handleStatusChange = function(statusVal) {
             if (statusVal === 'aisle') {
                 window.renderPalletList(['']);
@@ -338,9 +341,126 @@
             }
         };
 
+        // 엑셀 파일 업로드 처리 함수
+        window.handleExcelUpload = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                // 시트 데이터를 JSON 배열(A=0번열, C=2번열, D=3번열, E=4번열)로 변환
+                const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                
+                window.excelRawData = [];
+                // 첫 번째 행은 헤더(제목)일 수 있으므로 데이터 구조에 맞게 매핑
+                rows.forEach((r, idx) => {
+                    if (idx === 0) return; // 첫 줄(헤더) 스킵 필요시 주석 해제 또는 조절
+                    let palletNo = r[0]; // A열 (파레트 넘버)
+                    let itemName = r[2]; // C열 (제품명)
+                    let sizeName = r[3]; // D열 (사이즈)
+                    let qty = Number(r[4]) || 0; // E열 (수량)
+
+                    if (palletNo !== undefined && palletNo !== null && String(palletNo).trim() !== '') {
+                        window.excelRawData.push({
+                            pallet: String(palletNo).trim(),
+                            item: itemName ? String(itemName).trim() : '기타',
+                            size: sizeName ? String(sizeName).trim() : 'Free',
+                            qty: qty
+                        });
+                    }
+                });
+
+                alert(`엑셀 파일 로드 완료! 총 ${window.excelRawData.length}건의 데이터가 연동되었습니다.`);
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        // [제품 상세] 버튼 클릭 시 해당 파레트 번호들의 데이터를 서머리하여 표시
+        window.showProductDetails = function() {
+            const summaryContainer = document.getElementById('excelSummaryContainer');
+            if (window.excelRawData.length === 0) {
+                summaryContainer.innerHTML = '<span style="color:red; font-size:12px;">⚠️ 먼저 상단에서 재고 엑셀 파일을 업로드해주세요!</span>';
+                return;
+            }
+
+            // 현재 칸에 입력된 파레트 번호들 가져오기
+            const palletInputs = document.querySelectorAll('.pallet-input');
+            const currentPallets = Array.from(palletInputs).map(inp => inp.value.trim()).filter(v => v !== '' && v !== 'x');
+
+            if (currentPallets.length === 0) {
+                summaryContainer.innerHTML = '<span style="color:orange; font-size:12px;">이 로케이션에 등록된 유효한 파레트 번호가 없습니다.</span>';
+                return;
+            }
+
+            // 해당 파레트 번호에 일치하는 엑셀 데이터 필터링
+            const filteredRows = window.excelRawData.filter(row => currentPallets.includes(row.pallet));
+
+            if (filteredRows.length === 0) {
+                summaryContainer.innerHTML = '<span style="color:gray; font-size:12px;">업로드된 엑셀 데이터 중 해당 파레트 번호와 일치하는 내역이 없습니다.</span>';
+                return;
+            }
+
+            // 같은 제품명 + 같은 사이즈끼리 수량(qty) 합산(서머리)
+            let summaryMap = {};
+            filteredRows.forEach(row => {
+                let key = `${row.item}_${row.size}`;
+                if (!summaryMap[key]) {
+                    summaryMap[key] = {
+                        item: row.item,
+                        size: row.size,
+                        totalQty: 0
+                    };
+                }
+                summaryMap[key].totalQty += row.qty;
+            });
+
+            // HTML 테이블로 결과 생성
+            let html = `
+                <table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:5px;">
+                    <thead>
+                        <tr style="background:#f1f3f5; border-bottom:1px solid #ccc;">
+                            <th style="padding:6px; text-align:left;">제품명 (C열)</th>
+                            <th style="padding:6px; text-align:center;">사이즈 (D열)</th>
+                            <th style="padding:6px; text-align:right;">총 수량 (E열 서머리)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            let grandTotal = 0;
+            Object.values(summaryMap).forEach(summary => {
+                grandTotal += summary.totalQty;
+                html += `
+                    <tr style="border-bottom:1px solid #eee;">
+                        <td style="padding:6px;">${summary.item}</td>
+                        <td style="padding:6px; text-align:center;">${summary.size}</td>
+                        <td style="padding:6px; text-align:right; font-weight:bold; color:#007bff;">${summary.totalQty.toLocaleString()}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+                <div style="text-align:right; margin-top:6px; font-weight:bold; font-size:12px;">
+                    총 합산 수량: <span style="color:#28a745;">${grandTotal.toLocaleString()}개</span>
+                </div>
+            `;
+
+            summaryContainer.innerHTML = html;
+        };
+
         initDefaultData();
         listenRealtimeData();
     </script>
+
+    <!-- SheetJS (엑셀 파일 읽기 라이브러리) CDN 추가 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <style>
         body {
@@ -351,14 +471,24 @@
         }
         h2 {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
         .sync-status {
             text-align: center;
             font-size: 13px;
             color: #007bff;
-            margin-bottom: 15px;
+            margin-bottom: 10px;
             font-weight: bold;
+        }
+        /* 상단 엑셀 업로드 바구니 스타일 */
+        .excel-upload-bar {
+            text-align: center;
+            background: #fff;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            font-size: 13px;
         }
         .all-racks-container {
             display: flex;
@@ -455,15 +585,15 @@
         }
         .modal-content {
             background: white;
-            padding: 25px;
+            padding: 22px;
             border-radius: 8px;
-            width: 380px;
-            max-height: 80vh;
+            width: 420px;
+            max-height: 85vh;
             overflow-y: auto;
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
         .modal-content h3 { margin-top: 0; }
-        .modal-content p { margin: 12px 0; }
+        .modal-content p { margin: 10px 0; }
         
         .input-row {
             display: flex;
@@ -482,7 +612,7 @@
             display: flex;
             flex-direction: column;
             gap: 6px;
-            max-height: 120px;
+            max-height: 100px;
             overflow-y: auto;
             padding-right: 4px;
         }
@@ -512,7 +642,32 @@
         }
         .btn-add-item:hover { background-color: #218838; }
 
-        .modal-buttons { text-align: right; margin-top: 22px; }
+        /* 제품 상세 조회 버튼 스타일 */
+        .btn-detail {
+            background-color: #17a2b8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 8px;
+        }
+        .btn-detail:hover { background-color: #138496; }
+
+        .excel-summary-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 8px;
+            min-height: 50px;
+            max-height: 140px;
+            overflow-y: auto;
+            margin-top: 5px;
+        }
+
+        .modal-buttons { text-align: right; margin-top: 18px; }
         .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; }
         .btn-primary { background: #007bff; color: white; }
         .btn-secondary { background: #6c757d; color: white; margin-right: 5px; }
@@ -525,6 +680,12 @@
     <h2>창고 전체 메자닌 선반 실시간 재고 관리</h2>
     <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
+    <!-- 상단 엑셀 파일 업로드 구역 -->
+    <div class="excel-upload-bar">
+        📊 <strong>재고 데이터 엑셀 업로드:</strong> 
+        <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)" style="margin-left: 10px;">
+    </div>
+
     <div class="legend-container">
         <div class="legend-item"><div class="legend-box" style="background:#d1ecf1; border-color:#bee5eb;"></div> 재고 있음</div>
         <div class="legend-item"><div class="legend-box" style="background:#fff3cd; border-color:#ffeeba;"></div> 재고 없음 (노란색)</div>
@@ -535,7 +696,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 파레트 번호 및 제품명 추가/삭제, 통로 지정 시 자동 비우기 기능이 적용되었습니다.
+        💡 파레트 클릭 후 [제품 상세] 버튼을 누르면 엑셀의 제품명(C열), 사이즈(D열) 수량(E열)이 자동 합산되어 표시됩니다.
     </div>
 
     <!-- 상세 정보 팝업 모달 -->
@@ -550,7 +711,7 @@
             </p>
             
             <p>
-                <strong>제품명 목록:</strong>
+                <strong>제품명 목록 (직접 입력):</strong>
                 <div class="list-container" id="itemListContainer"></div>
             </p>
 
@@ -563,6 +724,14 @@
                     <option value="defect">불량</option>
                 </select>
             </p>
+
+            <!-- 제품 상세 엑셀 연동 조회 영역 -->
+            <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 12px;">
+                <button type="button" class="btn-detail" onclick="showProductDetails()">📋 제품 상세 (엑셀 데이터 서머리)</button>
+                <div class="excel-summary-box" id="excelSummaryContainer">
+                    <span style="color:#888; font-size:12px;">상단에서 엑셀 파일을 업로드한 뒤 [제품 상세] 버튼을 누르세요.</span>
+                </div>
+            </div>
 
             <div class="modal-buttons">
                 <button class="btn btn-secondary" onclick="closeModal()">취소</button>
