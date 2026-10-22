@@ -138,9 +138,9 @@
                     tierDiv.className = 'shelf-tier';
 
                     const labelDiv = document.createElement('div');
-                    tierDiv.appendChild(labelDiv);
                     labelDiv.className = 'tier-label';
                     labelDiv.innerText = `${tier}층`;
+                    tierDiv.appendChild(labelDiv);
 
                     const gridDiv = document.createElement('div');
                     gridDiv.className = 'grid-14';
@@ -151,7 +151,12 @@
                         if (!data) continue;
 
                         const slot = document.createElement('div');
-                        slot.className = `slot ${data.status}`;
+                        
+                        // 가로 2개 단위로 쌍(Pair)을 구분하기 위한 계산 (0번 쌍: 1,2열 / 1번 쌍: 3,4열...)
+                        let pairIndex = Math.floor((col - 1) / 2);
+                        let pairClass = (pairIndex % 2 === 0) ? 'pair-a' : 'pair-b';
+
+                        slot.className = `slot ${data.status} ${pairClass}`;
                         slot.id = `slot-${key}`;
                         
                         let displayPallet = '';
@@ -178,7 +183,6 @@
                             e.currentTarget.classList.remove('drag-over');
                         });
                         
-                        // [수정됨] 렉 선반과 통로 간 드래그 앤 드롭 및 상태 자동 전환 로직
                         slot.addEventListener('drop', (e) => {
                             e.preventDefault();
                             const targetKey = e.currentTarget.dataset.key;
@@ -193,19 +197,15 @@
                                 let srcIsAisle = aisleRacks.includes(srcData.rack);
                                 let targetIsAisle = aisleRacks.includes(targetData.rack);
 
-                                // 1. 목적지(Target)에 출발지(Source) 데이터 적용
                                 updates[targetKey + '/pallets'] = srcData.pallets;
                                 updates[targetKey + '/items'] = srcData.items;
-                                // 통로 슬롯으로 들어온 경우 상태는 무조건 occupied(재고있음)로 지정
                                 updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
 
-                                // 2. 출발지(Source) 후처리 (통로였던 곳이 비워지면 다시 aisle로, 렉이었던 곳이 비워지면 empty(x)로 변경)
                                 if (srcIsAisle) {
                                     updates[draggedSourceKey + '/pallets'] = [''];
                                     updates[draggedSourceKey + '/items'] = [''];
                                     updates[draggedSourceKey + '/status'] = 'aisle';
                                 } else {
-                                    // 렉 구역에서 다른 곳으로 재고가 빠져나간 경우 빈자리는 재고 없음(empty/x)으로 변경
                                     updates[draggedSourceKey + '/pallets'] = ['x'];
                                     updates[draggedSourceKey + '/items'] = ['-'];
                                     updates[draggedSourceKey + '/status'] = 'empty';
@@ -798,16 +798,28 @@
             cursor: pointer;
             user-select: none;
             transition: all 0.2s;
-            background-color: #f8f9fa;
             padding: 2px;
             pointer-events: auto !important;
         }
 
-        .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
-        .slot.empty { background-color: #fff3cd; border-color: #ffeeba; color: #856404; }
-        .slot.occupied { background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
-        .slot.defect { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
-        .slot.drag-over { border: 2px dashed #007bff; background-color: #e2e3e5; }
+        /* [추가됨] 실제 파레트 적재 구조에 맞추어 가로 2개씩(짝수/홀수 쌍) 명암을 교차 적용 */
+        /* 재고 있음 (occupied) */
+        .slot.occupied.pair-a { background-color: #cbecee; border-color: #9acfd4; color: #0c5460; }
+        .slot.occupied.pair-b { background-color: #e2f4f6; border-color: #b8e2e6; color: #0c5460; }
+
+        /* 재고 없음 (empty / x) */
+        .slot.empty.pair-a { background-color: #faeab9; border-color: #f3dc95; color: #856404; }
+        .slot.empty.pair-b { background-color: #fdf5df; border-color: #faecc3; color: #856404; }
+
+        /* 통로/복도 (aisle) */
+        .slot.aisle.pair-a { background-color: #c3ebd0; border-color: #a3dfb5; color: #155724; }
+        .slot.aisle.pair-b { background-color: #e5f7ea; border-color: #c9eccf; color: #155724; }
+
+        /* 불량 (defect) */
+        .slot.defect.pair-a { background-color: #f5c2c7; border-color: #f1aeb5; color: #721c24; }
+        .slot.defect.pair-b { background-color: #fcd8db; border-color: #f5c2c7; color: #721c24; }
+
+        .slot.drag-over { border: 2px dashed #007bff !important; background-color: #e2e3e5 !important; }
 
         .legend-container {
             display: flex;
@@ -950,16 +962,16 @@
     </div>
 
     <div class="legend-container">
-        <div class="legend-item"><div class="legend-box" style="background:#d1ecf1; border-color:#bee5eb;"></div> 재고 있음</div>
-        <div class="legend-item"><div class="legend-box" style="background:#fff3cd; border-color:#ffeeba;"></div> 재고 없음 (노란색)</div>
-        <div class="legend-item"><div class="legend-box" style="background:#d4edda; border-color:#c3e6cb;"></div> 통로/복도 (녹색)</div>
-        <div class="legend-item"><div class="legend-box" style="background:#f8d7da; border-color:#f5c6cb;"></div> 불량</div>
+        <div class="legend-item"><div class="legend-box" style="background:#cbecee; border-color:#9acfd4;"></div> 재고 있음 (2개씩 교차)</div>
+        <div class="legend-item"><div class="legend-box" style="background:#faeab9; border-color:#f3dc95;"></div> 재고 없음</div>
+        <div class="legend-item"><div class="legend-box" style="background:#c3ebd0; border-color:#a3dfb5;"></div> 통로/복도</div>
+        <div class="legend-item"><div class="legend-box" style="background:#f5c2c7; border-color:#f1aeb5;"></div> 불량</div>
     </div>
     
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 렉 슬롯을 통로로 이동하면 통로는 재고가 되고, 원래 렉 빈자리는 '재고 없음(x)'으로 바뀝니다.
+        💡 렉 선반 슬롯이 가로 2개 단위로 진하고 연한 색상이 교차되어 실제 파레트 적재 공간을 쉽게 파악할 수 있습니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
