@@ -276,7 +276,7 @@
             window.renderPalletList(currentPallets);
         };
 
-        // 컬렉션 명 입력창 생성 (일반 텍스트 입력창 형태, 필요시 직접 수정 가능)
+        // 컬렉션 명 입력창 (오직 텍스트 입력창만 생성)
         window.renderItemList = function(items) {
             const container = document.getElementById('itemListContainer');
             container.innerHTML = '';
@@ -822,7 +822,7 @@
     <!-- 엑셀 제품 상세 대형 모달 창 -->
     <div class="modal" id="excelDetailModal">
         <div class="large-modal-content">
-            <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
+            <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #007bff; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
             <div id="detailModalBody" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;"></div>
             <div style="text-align: right; margin-top: 20px;">
                 <button type="button" class="btn btn-primary" onclick="closeDetailModal()" style="padding: 8px 20px; font-size: 14px;">확인</button>
