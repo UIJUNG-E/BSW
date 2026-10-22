@@ -84,7 +84,7 @@
                                     tier: tier,
                                     col: col,
                                     pallets: [val && val !== 'x' ? String(val) : ''],
-                                    items: [''],
+                                    items: [val && val !== 'x' ? `제품-${val}` : '-'],
                                     status: status
                                 };
                             }
@@ -192,7 +192,7 @@
                                 updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
 
                                 updates[draggedSourceKey + '/pallets'] = srcIsAisle ? [''] : ['x'];
-                                updates[draggedSourceKey + '/items'] = [''];
+                                updates[draggedSourceKey + '/items'] = ['-'];
                                 updates[draggedSourceKey + '/status'] = srcIsAisle ? 'aisle' : 'empty';
 
                                 update(dbRef, updates);
@@ -222,9 +222,37 @@
             document.getElementById('modalStatus').value = data.status;
 
             renderPalletList(data.pallets || ['']);
-            renderItemList(data.items || ['']);
-            
+
+            // 모달을 열 때, 업로드된 엑셀 데이터에서 현재 파레트들에 해당하는 B열(컬렉션명)들을 자동 추출
+            let derivedCollections = autoDetectCollections(data.pallets);
+            renderItemList(derivedCollections);
+
             document.getElementById('infoModal').style.display = 'flex';
+        }
+
+        // 현재 등록된 파레트 번호들에 해당하는 엑셀의 B열(컬렉션명)을 찾아 중복 제거 후 반환하는 함수
+        function autoDetectCollections(pallets) {
+            if (!window.excelRawData || window.excelRawData.length === 0) {
+                return ['-']; // 엑셀 데이터가 없으면 기존 유지
+            }
+
+            let validPallets = pallets.filter(p => p !== '' && p !== 'x');
+            if (validPallets.length === 0) {
+                return ['-'];
+            }
+
+            let matchedCollections = new Set();
+            window.excelRawData.forEach(row => {
+                if (validPallets.includes(row.pallet) && row.collection) {
+                    matchedCollections.add(row.collection);
+                }
+            });
+
+            if (matchedCollections.size === 0) {
+                return ['-'];
+            }
+
+            return Array.from(matchedCollections);
         }
 
         window.renderPalletList = function(pallets) {
@@ -239,13 +267,20 @@
                 input.type = 'text';
                 input.value = pallet;
                 input.className = 'pallet-input';
+                // 파레트 번호가 바뀔 때마다 제품명(컬렉션명) 입력란도 실시간으로 연동되도록 이벤트 추가
+                input.oninput = function() {
+                    updateCollectionsRealtime();
+                };
                 row.appendChild(input);
 
                 const delBtn = document.createElement('button');
                 delBtn.type = 'button';
                 delBtn.className = 'btn-delete';
                 delBtn.innerText = '삭제';
-                delBtn.onclick = () => window.removePalletRow(index);
+                delBtn.onclick = () => {
+                    window.removePalletRow(index);
+                    updateCollectionsRealtime();
+                };
                 row.appendChild(delBtn);
 
                 if (index === 0) {
@@ -253,13 +288,24 @@
                     addBtn.type = 'button';
                     addBtn.className = 'btn-add-item';
                     addBtn.innerText = '+';
-                    addBtn.onclick = window.addPalletRow;
+                    addBtn.onclick = () => {
+                        window.addPalletRow();
+                        updateCollectionsRealtime();
+                    };
                     row.appendChild(addBtn);
                 }
 
                 container.appendChild(row);
             });
         };
+
+        // 파레트 입력란이 바뀔 때 컬렉션명(제품명) 입력란을 실시간 갱신
+        function updateCollectionsRealtime() {
+            const palletInputs = document.querySelectorAll('.pallet-input');
+            const currentPallets = Array.from(palletInputs).map(inp => inp.value.trim());
+            let collections = autoDetectCollections(currentPallets);
+            renderItemList(collections);
+        }
 
         window.addPalletRow = function() {
             const inputs = document.querySelectorAll('.pallet-input');
@@ -276,6 +322,7 @@
             window.renderPalletList(currentPallets);
         };
 
+        // 제품명(컬렉션명) 목록 렌더링 (2개 이상일 경우 세로로 줄바꿈되어 보이도록 텍스트어레인지 또는 다중 입력 필드 처리)
         window.renderItemList = function(items) {
             const container = document.getElementById('itemListContainer');
             container.innerHTML = '';
@@ -288,7 +335,7 @@
                 input.type = 'text';
                 input.value = item;
                 input.className = 'item-input';
-                input.placeholder = '컬렉션 명 입력';
+                // 제품명(컬렉션명)은 엑셀에서 자동 연동되므로 읽기 전용 또는 직접 수정 가능하게 세팅
                 row.appendChild(input);
 
                 const delBtn = document.createElement('button');
@@ -322,7 +369,7 @@
             const inputs = document.querySelectorAll('.item-input');
             let currentItems = Array.from(inputs).map(input => input.value);
             currentItems.splice(index, 1);
-            if (currentItems.length === 0) currentItems.push('');
+            if (currentItems.length === 0) currentItems.push('-');
             window.renderItemList(currentItems);
         };
 
@@ -332,7 +379,7 @@
                 window.renderItemList(['']);
             } else if (statusVal === 'empty') {
                 window.renderPalletList(['x']);
-                window.renderItemList(['']);
+                window.renderItemList(['-']);
             }
         };
 
@@ -341,7 +388,6 @@
             currentEditingKey = null;
         };
 
-        // 저장 시 파레트 번호에 일치하는 엑셀 C열 데이터를 자동으로 가져와 채워넣음
         window.saveModalData = function() {
             if (currentEditingKey) {
                 const statusVal = document.getElementById('modalStatus').value;
@@ -352,22 +398,7 @@
 
                 const inputElements = document.querySelectorAll('.item-input');
                 let itemsVal = Array.from(inputElements).map(input => input.value.trim()).filter(v => v !== '');
-
-                // 입력된 컬렉션명이 없고 엑셀 데이터가 있다면 C열(제품명) 데이터를 자동 검색하여 채움
-                if ((itemsVal.length === 0 || itemsVal[0] === '') && window.excelRawData && window.excelRawData.length > 0) {
-                    let matchedNames = [];
-                    palletsVal.forEach(pNo => {
-                        let found = window.excelRawData.find(row => row.pallet === pNo);
-                        if (found && found.itemName) {
-                            matchedNames.push(found.itemName);
-                        }
-                    });
-                    if (matchedNames.length > 0) {
-                        itemsVal = [...new Set(matchedNames)];
-                    }
-                }
-
-                if (itemsVal.length === 0) itemsVal = [''];
+                if (itemsVal.length === 0) itemsVal = ['-'];
 
                 const targetRef = ref(db, `warehouse/${currentEditingKey}`);
                 set(targetRef, {
@@ -400,16 +431,18 @@
                     window.excelRawData = [];
                     rows.forEach((r, idx) => {
                         if (idx === 0) return;
-                        let palletNo = r[0];      // A열: 파레트 번호 (인덱스 0)
-                        let itemName = r[2];      // C열: 제품명 (인덱스 2)
-                        let colorName = r[3];     // D열: 색상 (인덱스 3)
-                        let sizeName = r[4];      // E열: 사이즈 (인덱스 4)
-                        let qty = Number(r[5]) || 0; // F열: 수량 (인덱스 5)
+                        let palletNo = r[0];      // A열: 파레트 번호
+                        let collectionName = r[1]; // B열: 컬렉션명 (제품명)
+                        let itemName = r[2];       // C열: 제품명 상세
+                        let colorName = r[3];      // D열: 색상
+                        let sizeName = r[4];       // E열: 사이즈
+                        let qty = Number(r[5]) || 0; // F열: 수량
 
                         if (palletNo !== undefined && palletNo !== null && String(palletNo).trim() !== '') {
                             window.excelRawData.push({
                                 pallet: String(palletNo).trim(),
-                                itemName: itemName ? String(itemName).trim() : '기타', // C열 제품명
+                                collection: collectionName ? String(collectionName).trim() : '일반',
+                                item: itemName ? String(itemName).trim() : '기타',
                                 color: colorName ? String(colorName).trim() : '-',
                                 size: sizeName ? String(sizeName).trim() : 'Free',
                                 qty: qty
@@ -464,10 +497,10 @@
                 } else {
                     let summaryMap = {};
                     filteredRows.forEach(row => {
-                        let key = `${row.itemName}_${row.color}_${row.size}`;
+                        let key = `${row.item}_${row.color}_${row.size}`;
                         if (!summaryMap[key]) {
                             summaryMap[key] = {
-                                itemName: row.itemName,
+                                item: row.item,
                                 color: row.color,
                                 size: row.size,
                                 totalQty: 0
@@ -495,7 +528,7 @@
                         totalGrandQty += sum.totalQty;
                         html += `
                             <tr style="border-bottom:1px solid #eee;">
-                                <td style="padding:8px;">${sum.itemName}</td>
+                                <td style="padding:8px;">${sum.item}</td>
                                 <td style="padding:8px; text-align:center;">${sum.color}</td>
                                 <td style="padding:8px; text-align:center;">${sum.size}</td>
                                 <td style="padding:8px; text-align:right; font-weight:bold; color:#007bff;">${sum.totalQty.toLocaleString()} 개</td>
@@ -664,7 +697,7 @@
             background: white;
             padding: 22px;
             border-radius: 8px;
-            width: 420px;
+            width: 380px;
             max-height: 85vh;
             overflow-y: auto;
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
@@ -685,11 +718,11 @@
         .input-row {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             margin-top: 4px;
         }
         .input-row input {
-            height: 28px;
+            height: 26px;
             border: 1px solid #ccc;
             border-radius: 4px;
             padding: 0 8px;
@@ -777,7 +810,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 파레트 번호를 입력하고 저장하면 업로드된 엑셀 C열(제품명)이 자동으로 입력됩니다.
+        💡 엑셀 업로드 시 B열(컬렉션명)이 파레트 번호와 연동되어 제품명 목록에 자동으로 표시됩니다.
     </div>
 
     <!-- 기본 로케이션 정보 수정 모달 -->
@@ -792,7 +825,7 @@
             </p>
 
             <p>
-                <strong>컬렉션 명:</strong>
+                <strong>제품명 (컬렉션명 자동 연동):</strong>
                 <div class="list-container" id="itemListContainer"></div>
             </p>
 
@@ -820,7 +853,7 @@
     <!-- 엑셀 제품 상세 대형 모달 창 -->
     <div class="modal" id="excelDetailModal">
         <div class="large-modal-content">
-            <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #007bff; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
+            <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
             <div id="detailModalBody" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;"></div>
             <div style="text-align: right; margin-top: 20px;">
                 <button type="button" class="btn btn-primary" onclick="closeDetailModal()" style="padding: 8px 20px; font-size: 14px;">확인</button>
