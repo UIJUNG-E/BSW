@@ -138,9 +138,9 @@
                     tierDiv.className = 'shelf-tier';
 
                     const labelDiv = document.createElement('div');
+                    tierDiv.appendChild(labelDiv);
                     labelDiv.className = 'tier-label';
                     labelDiv.innerText = `${tier}층`;
-                    tierDiv.appendChild(labelDiv);
 
                     const gridDiv = document.createElement('div');
                     gridDiv.className = 'grid-14';
@@ -163,9 +163,7 @@
                         }
                         slot.innerText = displayPallet;
                         
-                        // 통로 구역을 포함하여 내용물이 있거나 드래그 가능한 상태 설정
-                        const hasValue = displayPallet !== '' && displayPallet !== 'x';
-                        slot.setAttribute('draggable', true); // 모든 슬롯 드래그 가능하도록 허용
+                        slot.setAttribute('draggable', true);
                         slot.dataset.key = key;
 
                         slot.addEventListener('dragstart', (e) => {
@@ -180,7 +178,7 @@
                             e.currentTarget.classList.remove('drag-over');
                         });
                         
-                        // [수정됨] 통로 슬롯을 포함하여 드롭 시 두 슬롯의 데이터를 완벽하게 맞교환(Swap)
+                        // [수정됨] 렉 선반과 통로 간 드래그 앤 드롭 및 상태 자동 전환 로직
                         slot.addEventListener('drop', (e) => {
                             e.preventDefault();
                             const targetKey = e.currentTarget.dataset.key;
@@ -192,13 +190,26 @@
 
                                 let updates = {};
 
+                                let srcIsAisle = aisleRacks.includes(srcData.rack);
+                                let targetIsAisle = aisleRacks.includes(targetData.rack);
+
+                                // 1. 목적지(Target)에 출발지(Source) 데이터 적용
                                 updates[targetKey + '/pallets'] = srcData.pallets;
                                 updates[targetKey + '/items'] = srcData.items;
-                                updates[targetKey + '/status'] = srcData.status;
+                                // 통로 슬롯으로 들어온 경우 상태는 무조건 occupied(재고있음)로 지정
+                                updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
 
-                                updates[draggedSourceKey + '/pallets'] = targetData.pallets;
-                                updates[draggedSourceKey + '/items'] = targetData.items;
-                                updates[draggedSourceKey + '/status'] = targetData.status;
+                                // 2. 출발지(Source) 후처리 (통로였던 곳이 비워지면 다시 aisle로, 렉이었던 곳이 비워지면 empty(x)로 변경)
+                                if (srcIsAisle) {
+                                    updates[draggedSourceKey + '/pallets'] = [''];
+                                    updates[draggedSourceKey + '/items'] = [''];
+                                    updates[draggedSourceKey + '/status'] = 'aisle';
+                                } else {
+                                    // 렉 구역에서 다른 곳으로 재고가 빠져나간 경우 빈자리는 재고 없음(empty/x)으로 변경
+                                    updates[draggedSourceKey + '/pallets'] = ['x'];
+                                    updates[draggedSourceKey + '/items'] = ['-'];
+                                    updates[draggedSourceKey + '/status'] = 'empty';
+                                }
 
                                 update(dbRef, updates);
                             }
@@ -448,10 +459,13 @@
                 let statusVal = document.getElementById('modalStatus').value;
 
                 let hasValidPallet = palletsVal.some(p => p !== '' && p !== 'x');
+                let isAisleLoc = aisleRacks.includes(warehouseData[currentEditingKey].rack);
+
                 if (hasValidPallet && statusVal !== 'defect') {
                     statusVal = 'occupied';
                 } else if (!hasValidPallet && statusVal === 'occupied') {
-                    statusVal = 'empty';
+                    statusVal = isAisleLoc ? 'aisle' : 'empty';
+                    if (isAisleLoc) palletsVal = [''];
                 }
 
                 const inputElements = document.querySelectorAll('.item-input');
@@ -945,7 +959,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 렉 선반과 통로를 포함한 모든 슬롯 간 드래그 앤 드롭으로 위치를 자유롭게 교환할 수 있습니다.
+        💡 렉 슬롯을 통로로 이동하면 통로는 재고가 되고, 원래 렉 빈자리는 '재고 없음(x)'으로 바뀝니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
