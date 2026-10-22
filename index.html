@@ -229,7 +229,6 @@
 
             document.getElementById('infoModal').style.display = 'flex';
 
-            // 모달 열릴 때 첫 번째 파레트 입력란에 커서(포커스) 자동 지정
             setTimeout(() => {
                 const firstPalletInput = document.querySelector('.pallet-input');
                 if (firstPalletInput) {
@@ -400,8 +399,9 @@
 
                 let statusVal = document.getElementById('modalStatus').value;
 
+                // [수정됨] 어떤 구역이든 유효한 파레트 번호가 입력되면 무조건 '재고 있음(occupied)'으로 자동 변경
                 let hasValidPallet = palletsVal.some(p => p !== '' && p !== 'x');
-                if (hasValidPallet && statusVal !== 'aisle' && statusVal !== 'defect') {
+                if (hasValidPallet && statusVal !== 'defect') {
                     statusVal = 'occupied';
                 } else if (!hasValidPallet && statusVal === 'occupied') {
                     statusVal = 'empty';
@@ -572,7 +572,6 @@
             document.getElementById('excelDetailModal').style.display = 'none';
         };
 
-        // 키보드 단축키 이벤트 (Enter로 저장, ESC로 취소/닫기)
         window.addEventListener('keydown', function(e) {
             const infoModal = document.getElementById('infoModal');
             const excelDetailModal = document.getElementById('excelDetailModal');
@@ -587,7 +586,6 @@
 
             if (e.key === 'Enter') {
                 if (infoModal.style.display === 'flex' && excelDetailModal.style.display !== 'flex') {
-                    // 입력 중에 엔터를 누를 때 자연스럽게 저장되도록 처리
                     if (document.activeElement.tagName === 'INPUT') {
                         window.saveModalData();
                         e.preventDefault();
@@ -846,7 +844,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 1번 모달창에서 엔터(Enter)로 저장, ESC로 취소가 가능합니다.
+        💡 어느 구역이든 파레트 번호를 입력하고 저장하면 상태가 자동으로 '재고 있음'으로 변경됩니다.
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
