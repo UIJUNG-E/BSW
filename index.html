@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>창고 메자닌 선반 실시간 재고 관리 (엑셀 영구 유지)</title>
+    <title>백성창고 재고관리</title>
     
     <!-- SheetJS (엑셀 파일 읽기 라이브러리) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -24,10 +24,10 @@
         let currentEditingKey = null;
         let draggedSourceKey = null;
 
-        // 업로드된 엑셀 데이터를 저장할 전역 변수 (브라우저 로컬스토리지 연동)
+        // 업로드된 엑셀 데이터를 저장할 전역 변수
         window.excelRawData = [];
 
-        // 페이지 로드 시 브라우저 저장소(localStorage)에 저장된 엑셀 데이터 복원
+        // 브라우저 저장소(localStorage)에 저장된 엑셀 데이터 복원
         function loadSavedExcelData() {
             const savedData = localStorage.getItem('warehouse_excel_cache');
             const savedFileName = localStorage.getItem('warehouse_excel_filename');
@@ -127,7 +127,7 @@
                 
                 const titleDiv = document.createElement('div');
                 titleDiv.className = `rack-title ${isAisle ? 'aisle-title' : ''}`;
-                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 제 ${r} 구역 메자닌 선반 ]`;
+                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 백성창고 제 ${r} 구역 렉 선반 ]`;
                 rackDiv.appendChild(titleDiv);
 
                 for (let tier = 3; tier >= 1; tier--) {
@@ -149,7 +149,15 @@
 
                         const slot = document.createElement('div');
                         slot.className = `slot ${data.status}`;
-                        let displayPallet = (data.pallets && data.pallets.length > 0 && data.pallets[0] !== '') ? data.pallets[0] : (data.status === 'empty' ? 'x' : '');
+                        
+                        // 파레트 번호들을 슬롯에 "1/32/32" 형식으로 표시
+                        let displayPallet = '';
+                        if (data.status === 'empty') {
+                            displayPallet = 'x';
+                        } else if (data.pallets && data.pallets.length > 0) {
+                            let validPallets = data.pallets.filter(p => p !== '' && p !== 'x');
+                            displayPallet = validPallets.length > 0 ? validPallets.join('/') : (data.pallets[0] || '');
+                        }
                         slot.innerText = displayPallet;
                         
                         const hasValue = displayPallet !== '' && displayPallet !== 'x';
@@ -208,7 +216,7 @@
 
             let locationName = aisleRacks.includes(data.rack) 
                 ? `통로 ${data.rack} / ${data.tier}층 / ${data.col}열`
-                : `제 ${data.rack}구역 / ${data.tier}층 / ${data.col}열`;
+                : `백성창고 제 ${data.rack}구역 / ${data.tier}층 / ${data.col}열`;
 
             document.getElementById('modalTitle').innerText = locationName;
             document.getElementById('modalLoc').innerText = locationName;
@@ -359,7 +367,6 @@
             }
         };
 
-        // 엑셀 업로드 처리 및 로컬 스토리지에 영구 캐싱
         window.handleExcelUpload = function(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -376,7 +383,7 @@
                     
                     window.excelRawData = [];
                     rows.forEach((r, idx) => {
-                        if (idx === 0) return; // 첫 행 헤더 스킵
+                        if (idx === 0) return;
                         let palletNo = r[0]; // A열
                         let itemName = r[2]; // C열
                         let colorName = r[3]; // D열
@@ -394,14 +401,13 @@
                         }
                     });
 
-                    // 브라우저 저장소에 캐싱하여 새로고침해도 유지되도록 함
                     localStorage.setItem('warehouse_excel_cache', JSON.stringify(window.excelRawData));
                     localStorage.setItem('warehouse_excel_filename', file.name);
 
                     document.getElementById('excelStatusText').innerText = `✅ [유지중] ${file.name} (총 ${window.excelRawData.length}건)`;
                     document.getElementById('excelStatusText').style.color = "#28a745";
 
-                    alert(`엑셀 파일 업로드 및 저장 완료! (새로고침해도 유지됩니다)\n총 ${window.excelRawData.length}건`);
+                    alert(`엑셀 파일 업로드 및 저장 완료!\n총 ${window.excelRawData.length}건`);
                 } catch (err) {
                     alert("엑셀 파일을 읽는 중 오류가 발생했습니다: " + err.message);
                 }
@@ -506,7 +512,6 @@
             document.getElementById('excelDetailModal').style.display = 'none';
         };
 
-        // 초기화 및 데이터 복원 실행
         loadSavedExcelData();
         initDefaultData();
         listenRealtimeData();
@@ -604,11 +609,14 @@
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 13px;
+            font-size: 11px;
+            text-align: center;
+            word-break: break-all;
             cursor: pointer;
             user-select: none;
             transition: all 0.2s;
             background-color: #f8f9fa;
+            padding: 2px;
         }
 
         .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
@@ -730,10 +738,9 @@
 </head>
 <body>
 
-    <h2>창고 전체 메자닌 선반 실시간 재고 관리</h2>
+    <h2>백성창고 재고관리</h2>
     <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
-    <!-- 상단 엑셀 업로드 바구니 (유지 상태 표시 추가) -->
     <div class="excel-upload-bar">
         <div>
             📊 <strong>재고 엑셀 업로드:</strong> 
@@ -754,7 +761,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 업로드된 엑셀 데이터는 브라우저에 안전하게 저장되어 새로고침해도 유지됩니다. 새로운 파일로 덮어쓸 때만 교체됩니다.
+        💡 슬롯에 여러 파레트가 등록된 경우 '1/32/32' 형식으로 표시됩니다.
     </div>
 
     <!-- 기본 로케이션 정보 수정 모달 -->
