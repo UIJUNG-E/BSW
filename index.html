@@ -276,55 +276,20 @@
             window.renderPalletList(currentPallets);
         };
 
+        // 컬렉션 명 입력창 생성 (일반 텍스트 입력창 형태, 필요시 직접 수정 가능)
         window.renderItemList = function(items) {
             const container = document.getElementById('itemListContainer');
             container.innerHTML = '';
-
-            let uniqueItemNames = [];
-            if (window.excelRawData && window.excelRawData.length > 0) {
-                let allNames = window.excelRawData.map(r => r.name).filter(n => n && n !== '');
-                uniqueItemNames = [...new Set(allNames)];
-            }
             
             items.forEach((item, index) => {
                 const row = document.createElement('div');
                 row.className = 'input-row';
                 
-                const select = document.createElement('select');
-                select.className = 'item-select';
-                select.style.flex = '1';
-                select.style.height = '30px';
-                select.style.borderRadius = '4px';
-                select.style.border = '1px solid #ccc';
-
-                let defaultOpt = document.createElement('option');
-                defaultOpt.value = '';
-                defaultOpt.innerText = '-- 컬렉션 선택 또는 직접 입력 --';
-                select.appendChild(defaultOpt);
-
-                uniqueItemNames.forEach(name => {
-                    let opt = document.createElement('option');
-                    opt.value = name;
-                    opt.innerText = name;
-                    if (name === item) opt.selected = true;
-                    select.appendChild(opt);
-                });
-
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.value = item;
                 input.className = 'item-input';
-                input.placeholder = '또는 직접 입력';
-                input.style.flex = '1';
-                input.style.height = '26px';
-
-                select.onchange = function() {
-                    if (select.value) {
-                        input.value = select.value;
-                    }
-                };
-
-                row.appendChild(select);
+                input.placeholder = '컬렉션 명 입력';
                 row.appendChild(input);
 
                 const delBtn = document.createElement('button');
@@ -377,7 +342,7 @@
             currentEditingKey = null;
         };
 
-        // 저장 시 파레트 번호에 해당하는 엑셀 B열 데이터를 자동으로 가져와 컬렉션명으로 설정
+        // 저장 시 파레트 번호에 일치하는 엑셀 B열 데이터를 자동으로 가져와 컬렉션명 칸에 채워넣음
         window.saveModalData = function() {
             if (currentEditingKey) {
                 const statusVal = document.getElementById('modalStatus').value;
@@ -390,7 +355,7 @@
                 const inputElements = document.querySelectorAll('.item-input');
                 let itemsVal = Array.from(inputElements).map(input => input.value.trim()).filter(v => v !== '');
 
-                // 만약 직접 입력된 컬렉션명이 없고 업로드된 엑셀 데이터가 있다면, 입력한 파레트 번호에 해당하는 B열(컬렉션명)을 자동 추출
+                // 만약 컬렉션명이 비어있고 업로드된 엑셀 데이터가 있다면, 파레트 번호로 B열(컬렉션명)을 자동 검색
                 if ((itemsVal.length === 0 || itemsVal[0] === '') && window.excelRawData && window.excelRawData.length > 0) {
                     let matchedNames = [];
                     palletsVal.forEach(pNo => {
@@ -438,7 +403,7 @@
                     rows.forEach((r, idx) => {
                         if (idx === 0) return;
                         let palletNo = r[0]; // A열: 파레트 번호
-                        let itemName = r[1]; // B열: 제품명(컬렉션명)
+                        let itemName = r[1]; // B열: 컬렉션명
                         let colorName = r[3]; // D열: 색상
                         let sizeName = r[4];  // E열: 사이즈
                         let qty = Number(r[5]) || 0; // F열: 수량
@@ -517,10 +482,10 @@
                         <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:5px;">
                             <thead>
                                 <tr style="background:#f1f3f5; border-bottom:1px solid #ccc;">
-                                    <th style="padding:8px; text-align:left;">컬렉션명 </th>
-                                    <th style="padding:8px; text-align:center;">색상 </th>
-                                    <th style="padding:8px; text-align:center;">사이즈 </th>
-                                    <th style="padding:8px; text-align:right;">합산 수량 </th>
+                                    <th style="padding:8px; text-align:left;">컬렉션명 (B열)</th>
+                                    <th style="padding:8px; text-align:center;">색상 (D열)</th>
+                                    <th style="padding:8px; text-align:center;">사이즈 (E열)</th>
+                                    <th style="padding:8px; text-align:right;">합산 수량 (F열 서머리)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -725,6 +690,13 @@
             gap: 6px;
             margin-top: 4px;
         }
+        .input-row input {
+            height: 28px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 0 8px;
+            flex: 1;
+        }
         .list-container {
             display: flex;
             flex-direction: column;
@@ -807,7 +779,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 파레트 번호를 입력하고 저장하면 업로드된 엑셀 B열(컬렉션명)에서 자동으로 가져와 노출됩니다.
+        💡 파레트 번호를 입력하고 저장하면 업로드된 엑셀 B열(컬렉션명)이 자동으로 입력됩니다.
     </div>
 
     <!-- 기본 로케이션 정보 수정 모달 -->
@@ -822,7 +794,7 @@
             </p>
 
             <p>
-                <strong>컬렉션 명 (선택 또는 직접 입력):</strong>
+                <strong>컬렉션 명:</strong>
                 <div class="list-container" id="itemListContainer"></div>
             </p>
 
