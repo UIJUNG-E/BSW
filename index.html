@@ -2,12 +2,12 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>백성창고 재고관리</title>
+    <title>창고 메자닌 선반 실시간 재고 관리 (엑셀 연동)</title>
     
-    <!-- SheetJS (엑셀 파일 읽기 라이브러리) -->
+    <!-- SheetJS (엑셀 파일 읽기 라이브러리) CDN 먼저 로드 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-    <!-- Firebase SDK v10 (Modular) -->
+    <!-- Firebase SDK v10 (Modular) 로드 -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, onValue, set, update, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -24,6 +24,7 @@
         let currentEditingKey = null;
         let draggedSourceKey = null;
 
+        // 업로드된 엑셀 데이터를 저장할 전역 변수
         window.excelRawData = [];
 
         const totalRacks = 6;
@@ -108,7 +109,7 @@
                 
                 const titleDiv = document.createElement('div');
                 titleDiv.className = `rack-title ${isAisle ? 'aisle-title' : ''}`;
-                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 제 ${r} 구역 렉 선반 ]`;
+                titleDiv.innerText = isAisle ? `🚶‍♂️ [ 통 로 (복도 ${r}) ]` : `📦 [ 제 ${r} 구역 메자닌 선반 ]`;
                 rackDiv.appendChild(titleDiv);
 
                 for (let tier = 3; tier >= 1; tier--) {
@@ -130,18 +131,10 @@
 
                         const slot = document.createElement('div');
                         slot.className = `slot ${data.status}`;
+                        let displayPallet = (data.pallets && data.pallets.length > 0 && data.pallets[0] !== '') ? data.pallets[0] : (data.status === 'empty' ? 'x' : '');
+                        slot.innerText = displayPallet;
                         
-                        // 파레트 번호들을 슬래시(/) 형태로 연결해서 표시 (예: 1/32/32)
-                        let validPallets = (data.pallets || []).filter(p => p !== '' && p !== 'x');
-                        let displayVal = '';
-                        if (validPallets.length > 0) {
-                            displayVal = validPallets.join('/');
-                        } else {
-                            displayVal = (data.status === 'empty' ? 'x' : '');
-                        }
-                        slot.innerText = displayVal;
-                        
-                        const hasValue = validPallets.length > 0;
+                        const hasValue = displayPallet !== '' && displayPallet !== 'x';
                         slot.setAttribute('draggable', hasValue);
                         slot.dataset.key = key;
 
@@ -349,7 +342,7 @@
             }
         };
 
-        // 엑셀 업로드 처리 (A열: 파레트, C열: 제품명, D열: 색상, E열: 사이즈, F열: 수량)
+        // 전역 함수로 엑셀 업로드 및 상세 보기 등록 (HTML에서 직접 호출 가능하도록 설정)
         window.handleExcelUpload = function(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -366,18 +359,16 @@
                     
                     window.excelRawData = [];
                     rows.forEach((r, idx) => {
-                        if (idx === 0) return; // 헤더 제외
+                        if (idx === 0) return; // 첫 행(헤더) 제외
                         let palletNo = r[0]; // A열
                         let itemName = r[2]; // C열
-                        let colorName = r[3]; // D열
-                        let sizeName = r[4]; // E열
-                        let qty = Number(r[5]) || 0; // F열
+                        let sizeName = r[3]; // D열
+                        let qty = Number(r[4]) || 0; // E열
 
                         if (palletNo !== undefined && palletNo !== null && String(palletNo).trim() !== '') {
                             window.excelRawData.push({
                                 pallet: String(palletNo).trim(),
                                 item: itemName ? String(itemName).trim() : '기타',
-                                color: colorName ? String(colorName).trim() : '기본',
                                 size: sizeName ? String(sizeName).trim() : 'Free',
                                 qty: qty
                             });
@@ -386,13 +377,12 @@
 
                     alert(`엑셀 파일 로드 성공! 총 ${window.excelRawData.length}건의 데이터가 연동되었습니다.`);
                 } catch (err) {
-                    alert("엑셀 파일 읽기 오류: " + err.message);
+                    alert("엑셀 파일을 읽는 중 오류가 발생했습니다: " + err.message);
                 }
             };
             reader.readAsArrayBuffer(file);
         };
 
-        // 제품 상세 서머리 (파레트별 + 제품명/색상/사이즈 합산)
         window.showProductDetails = function() {
             const summaryContainer = document.getElementById('excelSummaryContainer');
             if (!window.excelRawData || window.excelRawData.length === 0) {
@@ -415,64 +405,50 @@
                 return;
             }
 
-            // 파레트별로 그룹화 후 제품명 + 색상 + 사이즈 기준 수량 서머리
-            let palletGroup = {};
+            let summaryMap = {};
             filteredRows.forEach(row => {
-                if (!palletGroup[row.pallet]) {
-                    palletGroup[row.pallet] = {};
-                }
-                let key = `${row.item}_${row.color}_${row.size}`;
-                if (!palletGroup[row.pallet][key]) {
-                    palletGroup[row.pallet][key] = {
+                let key = `${row.item}_${row.size}`;
+                if (!summaryMap[key]) {
+                    summaryMap[key] = {
                         item: row.item,
-                        color: row.color,
                         size: row.size,
                         totalQty: 0
                     };
                 }
-                palletGroup[row.pallet][key].totalQty += row.qty;
+                summaryMap[key].totalQty += row.qty;
             });
 
-            let html = '';
-            let grandTotalAll = 0;
-
-            Object.keys(palletGroup).forEach(palletNo => {
-                html += `<div style="margin-bottom:10px; border-bottom:1px solid #ddd; padding-bottom:6px;">
-                            <div style="font-weight:bold; color:#0056b3; font-size:13px; margin-bottom:4px;">📦 파레트 번호: [ ${palletNo} ]</div>
-                            <table style="width:100%; border-collapse:collapse; font-size:11px;">
-                                <thead>
-                                    <tr style="background:#f1f3f5; border-bottom:1px solid #ccc;">
-                                        <th style="padding:4px; text-align:left;">제품명(C)</th>
-                                        <th style="padding:4px; text-align:center;">색상(D)</th>
-                                        <th style="padding:4px; text-align:center;">사이즈(E)</th>
-                                        <th style="padding:4px; text-align:right;">수량(F)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>`;
-
-                let palletTotal = 0;
-                Object.values(palletGroup[palletNo]).forEach(summary => {
-                    palletTotal += summary.totalQty;
-                    grandTotalAll += summary.totalQty;
-                    html += `
-                        <tr style="border-bottom:1px solid #eee;">
-                            <td style="padding:4px;">${summary.item}</td>
-                            <td style="padding:4px; text-align:center;">${summary.color}</td>
-                            <td style="padding:4px; text-align:center;">${summary.size}</td>
-                            <td style="padding:4px; text-align:right; font-weight:bold; color:#007bff;">${summary.totalQty.toLocaleString()}</td>
+            let html = `
+                <table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:5px;">
+                    <thead>
+                        <tr style="background:#f1f3f5; border-bottom:1px solid #ccc;">
+                            <th style="padding:6px; text-align:left;">제품명 (C열)</th>
+                            <th style="padding:6px; text-align:center;">사이즈 (D열)</th>
+                            <th style="padding:6px; text-align:right;">총 수량 (E열 서머리)</th>
                         </tr>
-                    `;
-                });
+                    </thead>
+                    <tbody>
+            `;
 
-                html += `   </tbody>
-                            </table>
-                            <div style="text-align:right; font-size:11px; margin-top:2px; font-weight:bold;">파레트 합계: ${palletTotal.toLocaleString()}개</div>
-                         </div>`;
+            let grandTotal = 0;
+            Object.values(summaryMap).forEach(summary => {
+                grandTotal += summary.totalQty;
+                html += `
+                    <tr style="border-bottom:1px solid #eee;">
+                        <td style="padding:6px;">${summary.item}</td>
+                        <td style="padding:6px; text-align:center;">${summary.size}</td>
+                        <td style="padding:6px; text-align:right; font-weight:bold; color:#007bff;">${summary.totalQty.toLocaleString()}</td>
+                    </tr>
+                `;
             });
 
-            html += `<div style="text-align:right; margin-top:8px; font-weight:bold; font-size:12px; color:#28a745;">
-                        전체 총 합산 수량: ${grandTotalAll.toLocaleString()}개
-                     </div>`;
+            html += `
+                    </tbody>
+                </table>
+                <div style="text-align:right; margin-top:6px; font-weight:bold; font-size:12px;">
+                    총 합산 수량: <span style="color:#28a745;">${grandTotal.toLocaleString()}개</span>
+                </div>
+            `;
 
             summaryContainer.innerHTML = html;
         };
@@ -569,15 +545,11 @@
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 11px;
+            font-size: 13px;
             cursor: pointer;
             user-select: none;
             transition: all 0.2s;
             background-color: #f8f9fa;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            padding: 2px;
         }
 
         .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
@@ -609,7 +581,7 @@
             background: white;
             padding: 22px;
             border-radius: 8px;
-            width: 440px;
+            width: 420px;
             max-height: 85vh;
             overflow-y: auto;
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
@@ -683,7 +655,7 @@
             border-radius: 6px;
             padding: 8px;
             min-height: 50px;
-            max-height: 160px;
+            max-height: 140px;
             overflow-y: auto;
             margin-top: 5px;
         }
@@ -698,7 +670,7 @@
 </head>
 <body>
 
-    <h2>백성창고 재고관리</h2>
+    <h2>창고 전체 메자닌 선반 실시간 재고 관리</h2>
     <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
 
     <!-- 상단 엑셀 업로드 바구니 -->
@@ -717,7 +689,7 @@
     <div class="all-racks-container" id="allRacks"></div>
 
     <div class="instructions">
-        💡 여러 파레트 번호가 입력된 칸은 `1/32/32` 형식으로 표시되며, [제품 상세]에서 파레트별/색상/사이즈별 수량이 합산되어 표시됩니다.
+        💡 상단에서 엑셀 파일을 업로드한 후 파레트를 클릭하여 [제품 상세] 버튼을 눌러보세요.
     </div>
 
     <!-- 상세 정보 팝업 모달 -->
