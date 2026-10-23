@@ -22,8 +22,8 @@
         const auth = getAuth(app);
         const dbRef = ref(db, 'warehouse');
 
-        // 👑 관리자 이메일 설정 (이 이메일로 가입/로그인하면 사용자 승인 권한 부여)
-        const ADMIN_EMAIL = "asmaeiji@gmail.com"; 
+        // 👑 관리자 이메일 설정
+        const ADMIN_EMAIL = "admin@email.com"; 
 
         let currentUser = null;
         let isApprovedUser = false;
@@ -36,12 +36,10 @@
         // --- 인증 상태 감지 ---
         onAuthStateChanged(auth, (user) => {
             if (user) {
-                // DB에서 사용자 승인 상태 확인
                 const userRef = ref(db, `users/${user.uid}`);
                 get(userRef).then((snapshot) => {
                     const userData = snapshot.val();
                     
-                    // 관리자 계정이거나 DB상 승인(approved: true)된 사용자만 입장
                     if (user.email === ADMIN_EMAIL || (userData && userData.approved === true)) {
                         currentUser = user;
                         isApprovedUser = true;
@@ -60,13 +58,12 @@
                         initDefaultData();
                         listenRealtimeData();
                     } else {
-                        // 미승인 계정 로그아웃 처리
                         signOut(auth);
                         alert("⚠️ 관리자 승인 대기 중인 계정입니다. 관리자에게 승인을 요청하세요.");
                         showLoginForm();
                     }
                 }).catch(err => {
-                    alert("사용자 정보 조회 에러: " + err.message);
+                    console.error("사용자 정보 조회 에러:", err);
                 });
             } else {
                 currentUser = null;
@@ -76,7 +73,7 @@
             }
         });
 
-        // --- 로그인 / 회원가입 함수 ---
+        // --- 로그인 / 회원가입 함수 (window 객체에 명시적 등록) ---
         window.handleLogin = function() {
             const email = document.getElementById('loginEmail').value.trim();
             const pass = document.getElementById('loginPassword').value.trim();
@@ -107,7 +104,6 @@
                     const user = userCredential.user;
                     const isAutoAdmin = (email === ADMIN_EMAIL);
 
-                    // DB에 회원 정보 등록 (관리자는 자동 승인, 일반 사용자는 false)
                     set(ref(db, `users/${user.uid}`), {
                         uid: user.uid,
                         name: name,
@@ -130,9 +126,7 @@
         };
 
         window.handleLogout = function() {
-            signOut(auth).then(() => {
-                showLoginForm();
-            });
+            signOut(auth);
         };
 
         window.showLoginForm = function() {
@@ -193,7 +187,7 @@
             document.getElementById('adminModal').style.display = 'none';
         };
 
-        // --- 창고 로직 (기존 소스 동일) ---
+        // --- 창고 로직 ---
         function loadSavedExcelData() {
             const savedData = localStorage.getItem('warehouse_excel_cache');
             const savedFileName = localStorage.getItem('warehouse_excel_filename');
@@ -818,7 +812,6 @@
             color: #333;
         }
 
-        /* 로그인 / 회원가입 스타일 */
         .auth-container {
             display: flex;
             justify-content: center;
@@ -852,7 +845,6 @@
         .btn-auth:hover { background: #0056b3; }
         .auth-toggle { margin-top: 15px; font-size: 13px; color: #666; cursor: pointer; text-decoration: underline; }
 
-        /* 사용자 프로필 / 상단 바 */
         .user-bar {
             display: flex;
             justify-content: space-between;
@@ -1075,7 +1067,7 @@
     <!-- 2번 모달창 (엑셀 제품 상세 모달) -->
     <div class="modal" id="excelDetailModal">
         <div class="large-modal-content">
-            <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
+            <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #007bff; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
             <div id="detailModalBody" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;"></div>
             <div style="text-align: right; margin-top: 20px;">
                 <button type="button" class="btn btn-primary" onclick="closeDetailModal()" style="padding: 8px 20px; font-size: 14px;">확인</button>
