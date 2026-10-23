@@ -11,6 +11,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, onValue, set, update, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
             databaseURL: "https://warehouse-bs-5e863-default-rtdb.firebaseio.com/"
@@ -18,14 +19,181 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
+        const auth = getAuth(app);
         const dbRef = ref(db, 'warehouse');
 
+        // 👑 관리자 이메일 설정 (이 이메일로 가입/로그인하면 사용자 승인 권한 부여)
+        const ADMIN_EMAIL = "asmaeiji@gmail.com"; 
+
+        let currentUser = null;
+        let isApprovedUser = false;
         let warehouseData = {};
         let currentEditingKey = null;
         let draggedSourceKey = null;
 
         window.excelRawData = [];
 
+        // --- 인증 상태 감지 ---
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // DB에서 사용자 승인 상태 확인
+                const userRef = ref(db, `users/${user.uid}`);
+                get(userRef).then((snapshot) => {
+                    const userData = snapshot.val();
+                    
+                    // 관리자 계정이거나 DB상 승인(approved: true)된 사용자만 입장
+                    if (user.email === ADMIN_EMAIL || (userData && userData.approved === true)) {
+                        currentUser = user;
+                        isApprovedUser = true;
+                        
+                        document.getElementById('authContainer').style.display = 'none';
+                        document.getElementById('mainContainer').style.display = 'block';
+                        document.getElementById('userDisplay').innerText = `${userData ? userData.name : '사용자'} (${user.email})`;
+
+                        if (user.email === ADMIN_EMAIL) {
+                            document.getElementById('adminBtn').style.display = 'inline-block';
+                        } else {
+                            document.getElementById('adminBtn').style.display = 'none';
+                        }
+
+                        loadSavedExcelData();
+                        initDefaultData();
+                        listenRealtimeData();
+                    } else {
+                        // 미승인 계정 로그아웃 처리
+                        signOut(auth);
+                        alert("⚠️ 관리자 승인 대기 중인 계정입니다. 관리자에게 승인을 요청하세요.");
+                        showLoginForm();
+                    }
+                }).catch(err => {
+                    alert("사용자 정보 조회 에러: " + err.message);
+                });
+            } else {
+                currentUser = null;
+                isApprovedUser = false;
+                document.getElementById('authContainer').style.display = 'flex';
+                document.getElementById('mainContainer').style.display = 'none';
+            }
+        });
+
+        // --- 로그인 / 회원가입 함수 ---
+        window.handleLogin = function() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const pass = document.getElementById('loginPassword').value.trim();
+
+            if (!email || !pass) {
+                alert("이메일과 비밀번호를 입력해주세요.");
+                return;
+            }
+
+            signInWithEmailAndPassword(auth, email, pass)
+                .catch((error) => {
+                    alert("로그인 실패: " + error.message);
+                });
+        };
+
+        window.handleRegister = function() {
+            const name = document.getElementById('regName').value.trim();
+            const email = document.getElementById('regEmail').value.trim();
+            const pass = document.getElementById('regPassword').value.trim();
+
+            if (!name || !email || !pass) {
+                alert("모든 정보를 입력해주세요.");
+                return;
+            }
+
+            createUserWithEmailAndPassword(auth, email, pass)
+                .then((userCredential) => {
+                    const user = userCredential.user;
+                    const isAutoAdmin = (email === ADMIN_EMAIL);
+
+                    // DB에 회원 정보 등록 (관리자는 자동 승인, 일반 사용자는 false)
+                    set(ref(db, `users/${user.uid}`), {
+                        uid: user.uid,
+                        name: name,
+                        email: email,
+                        approved: isAutoAdmin,
+                        createdAt: new Date().toISOString()
+                    }).then(() => {
+                        if (isAutoAdmin) {
+                            alert("👑 관리자 계정으로 가입 및 자동 승인되었습니다.");
+                        } else {
+                            alert("가입 신청이 완료되었습니다!\n관리자 승인 후 이용 가능합니다.");
+                            signOut(auth);
+                            showLoginForm();
+                        }
+                    });
+                })
+                .catch((error) => {
+                    alert("회원가입 실패: " + error.message);
+                });
+        };
+
+        window.handleLogout = function() {
+            signOut(auth).then(() => {
+                showLoginForm();
+            });
+        };
+
+        window.showLoginForm = function() {
+            document.getElementById('loginCard').style.display = 'block';
+            document.getElementById('registerCard').style.display = 'none';
+        };
+
+        window.showRegisterForm = function() {
+            document.getElementById('loginCard').style.display = 'none';
+            document.getElementById('registerCard').style.display = 'block';
+        };
+
+        // --- 관리자 승인 모달 ---
+        window.openAdminModal = function() {
+            const adminModalBody = document.getElementById('adminModalBody');
+            adminModalBody.innerHTML = '로딩 중...';
+
+            get(ref(db, 'users')).then((snapshot) => {
+                const users = snapshot.val();
+                if (!users) {
+                    adminModalBody.innerHTML = '가입 신청한 사용자가 없습니다.';
+                    return;
+                }
+
+                let html = '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
+                html += '<tr style="background:#f1f3f5; border-bottom:1px solid #ccc;"><th style="padding:8px;">이름</th><th style="padding:8px;">이메일</th><th style="padding:8px;">상태</th><th style="padding:8px;">관리</th></tr>';
+
+                Object.values(users).forEach(u => {
+                    let isApproved = u.approved === true;
+                    html += `<tr style="border-bottom:1px solid #eee; text-align:center;">
+                        <td style="padding:8px;">${u.name}</td>
+                        <td style="padding:8px;">${u.email}</td>
+                        <td style="padding:8px; font-weight:bold; color:${isApproved ? '#28a745' : '#dc3545'};">${isApproved ? '승인됨' : '대기중'}</td>
+                        <td style="padding:8px;">
+                            ${isApproved 
+                                ? '<button style="padding:3px 8px; font-size:11px;" disabled>완료</button>' 
+                                : `<button style="background:#28a745; color:white; border:none; border-radius:4px; padding:4px 10px; font-weight:bold; cursor:pointer;" onclick="approveUser('${u.uid}')">승인하기</button>`
+                            }
+                        </td>
+                    </tr>`;
+                });
+                html += '</table>';
+                adminModalBody.innerHTML = html;
+                document.getElementById('adminModal').style.display = 'flex';
+            });
+        };
+
+        window.approveUser = function(targetUid) {
+            update(ref(db, `users/${targetUid}`), { approved: true })
+                .then(() => {
+                    alert("사용자가 승인되었습니다!");
+                    openAdminModal();
+                })
+                .catch(err => alert("승인 실패: " + err.message));
+        };
+
+        window.closeAdminModal = function() {
+            document.getElementById('adminModal').style.display = 'none';
+        };
+
+        // --- 창고 로직 (기존 소스 동일) ---
         function loadSavedExcelData() {
             const savedData = localStorage.getItem('warehouse_excel_cache');
             const savedFileName = localStorage.getItem('warehouse_excel_filename');
@@ -45,7 +213,6 @@
 
         const totalRacks = 6;
         const aisleRacks = [2, 5];
-
         const syncStatus = document.getElementById('syncStatus');
 
         function initDefaultData() {
@@ -90,8 +257,6 @@
                     }
                     set(dbRef, initialData);
                 }
-            }).catch((error) => {
-                console.error("초기 데이터 로드 실패:", error);
             });
         }
 
@@ -108,13 +273,7 @@
                     if (searchVal) {
                         searchPalletLocation(searchVal, false);
                     }
-                } else {
-                    syncStatus.innerText = "⚠️ 데이터가 비어있습니다.";
                 }
-            }, (error) => {
-                console.error("Firebase 연결 에러:", error);
-                syncStatus.innerText = "🔴 연결 오류: " + error.message;
-                syncStatus.style.color = "red";
             });
         }
 
@@ -312,14 +471,10 @@
         }
 
         function autoDetectCollections(pallets) {
-            if (!window.excelRawData || window.excelRawData.length === 0) {
-                return ['-'];
-            }
+            if (!window.excelRawData || window.excelRawData.length === 0) return ['-'];
 
             let validPallets = pallets.filter(p => p !== '' && p !== 'x');
-            if (validPallets.length === 0) {
-                return ['-'];
-            }
+            if (validPallets.length === 0) return ['-'];
 
             let matchedCollections = new Set();
             window.excelRawData.forEach(row => {
@@ -328,11 +483,7 @@
                 }
             });
 
-            if (matchedCollections.size === 0) {
-                return ['-'];
-            }
-
-            return Array.from(matchedCollections);
+            return matchedCollections.size === 0 ? ['-'] : Array.from(matchedCollections);
         }
 
         window.renderPalletList = function(pallets) {
@@ -347,9 +498,7 @@
                 input.type = 'text';
                 input.value = pallet;
                 input.className = 'pallet-input';
-                input.oninput = function() {
-                    updateCollectionsRealtime();
-                };
+                input.oninput = () => updateCollectionsRealtime();
                 row.appendChild(input);
 
                 const delBtn = document.createElement('button');
@@ -494,8 +643,6 @@
                     status: statusVal
                 }).then(() => {
                     window.closeModal();
-                }).catch((error) => {
-                    alert('저장 실패: ' + error.message);
                 });
             }
         };
@@ -511,18 +658,17 @@
                     const workbook = XLSX.read(data, { type: 'array' });
                     const firstSheetName = workbook.SheetNames[0];
                     const worksheet = workbook.Sheets[firstSheetName];
-                    
                     const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                     
                     window.excelRawData = [];
                     rows.forEach((r, idx) => {
                         if (idx === 0) return;
-                        let palletNo = r[0];      // A열: 파레트 번호
-                        let collectionName = r[1]; // B열: 컬렉션명
-                        let itemName = r[2];       // C열: 제품명
-                        let colorName = r[3];      // D열: 색상
-                        let sizeName = r[4];       // E열: 사이즈
-                        let qty = Number(r[5]) || 0; // F열: 수량
+                        let palletNo = r[0];
+                        let collectionName = r[1];
+                        let itemName = r[2];
+                        let colorName = r[3];
+                        let sizeName = r[4];
+                        let qty = Number(r[5]) || 0;
 
                         if (palletNo !== undefined && palletNo !== null && String(palletNo).trim() !== '') {
                             window.excelRawData.push({
@@ -544,7 +690,7 @@
 
                     alert(`엑셀 파일 업로드 및 저장 완료!\n총 ${window.excelRawData.length}건`);
                 } catch (err) {
-                    alert("엑셀 파일을 읽는 중 오류가 발생했습니다: " + err.message);
+                    alert("엑셀 파일 오류: " + err.message);
                 }
             };
             reader.readAsArrayBuffer(file);
@@ -555,7 +701,7 @@
             const detailModalTitle = document.getElementById('detailModalTitle');
 
             if (!window.excelRawData || window.excelRawData.length === 0) {
-                alert("⚠️ 업로드된 엑셀 재고 데이터가 없습니다. 상단에서 엑셀 파일을 먼저 업로드해주세요!");
+                alert("⚠️ 업로드된 엑셀 재고 데이터가 없습니다.");
                 return;
             }
 
@@ -579,18 +725,13 @@
                 html += `<div style="font-size: 15px; font-weight: bold; color: #0056b3; margin-bottom: 10px; border-bottom: 2px solid #007bff; padding-bottom: 6px;">파레트 번호: [ ${pNo} ]</div>`;
 
                 if (filteredRows.length === 0) {
-                    html += `<div style="color: #888; font-size: 13px; padding: 10px;">저장된 엑셀 데이터 중 파레트 번호 [${pNo}]와 일치하는 내역이 없습니다.</div>`;
+                    html += `<div style="color: #888; font-size: 13px; padding: 10px;">일치하는 내역이 없습니다.</div>`;
                 } else {
                     let summaryMap = {};
                     filteredRows.forEach(row => {
                         let key = `${row.item}_${row.color}_${row.size}`;
                         if (!summaryMap[key]) {
-                            summaryMap[key] = {
-                                item: row.item,
-                                color: row.color,
-                                size: row.size,
-                                totalQty: 0
-                            };
+                            summaryMap[key] = { item: row.item, color: row.color, size: row.size, totalQty: 0 };
                         }
                         summaryMap[key].totalQty += row.qty;
                     });
@@ -650,13 +791,12 @@
         window.addEventListener('keydown', function(e) {
             const infoModal = document.getElementById('infoModal');
             const excelDetailModal = document.getElementById('excelDetailModal');
+            const adminModal = document.getElementById('adminModal');
 
             if (e.key === 'Escape') {
-                if (excelDetailModal.style.display === 'flex') {
-                    window.closeDetailModal();
-                } else if (infoModal.style.display === 'flex') {
-                    window.closeModal();
-                }
+                if (adminModal.style.display === 'flex') window.closeAdminModal();
+                else if (excelDetailModal.style.display === 'flex') window.closeDetailModal();
+                else if (infoModal.style.display === 'flex') window.closeModal();
             }
 
             if (e.key === 'Enter') {
@@ -668,74 +808,95 @@
                 }
             }
         });
-
-        window.addEventListener('DOMContentLoaded', () => {
-            const searchInput = document.getElementById('palletSearchInput');
-            if (searchInput) {
-                searchInput.focus();
-            }
-        });
-
-        loadSavedExcelData();
-        initDefaultData();
-        listenRealtimeData();
     </script>
 
     <style>
         body {
             font-family: 'Malgun Gothic', sans-serif;
             background-color: #f4f6f9;
-            margin: 20px;
+            margin: 0; padding: 20px;
             color: #333;
         }
-        h2 {
-            text-align: center;
-            margin-bottom: 10px;
-        }
-        .sync-status {
-            text-align: center;
-            font-size: 13px;
-            color: #007bff;
-            margin-bottom: 10px;
-            font-weight: bold;
-        }
-        .top-bar-container {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            max-width: 1000px;
-            margin: 0 auto 15px auto;
-            background: #f4f6f9;
-            padding-bottom: 10px;
-        }
-        .excel-upload-bar, .search-bar {
-            text-align: center;
-            background: #fff;
-            padding: 12px;
-            border-radius: 6px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.08);
-            font-size: 13px;
+
+        /* 로그인 / 회원가입 스타일 */
+        .auth-container {
             display: flex;
             justify-content: center;
             align-items: center;
-            gap: 15px;
+            min-height: 80vh;
         }
-        .search-bar {
-            background: #eef2f7;
-            border: 1px solid #d1d8e0;
+        .auth-card {
+            background: white;
+            padding: 30px 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            width: 320px;
+            text-align: center;
         }
-        .search-bar input {
-            height: 28px;
-            width: 220px;
-            border: 1px solid #a4b0be;
-            border-radius: 4px;
+        .auth-card h2 { margin-bottom: 20px; color: #0056b3; }
+        .auth-card input {
+            width: 100%; height: 38px;
+            margin-bottom: 12px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
             padding: 0 10px;
-            font-size: 14px;
-            font-weight: bold;
-            color: #2f3640;
+            box-sizing: border-box;
+        }
+        .btn-auth {
+            width: 100%; height: 40px;
+            background: #007bff; color: white;
+            border: none; border-radius: 5px;
+            font-size: 15px; font-weight: bold;
+            cursor: pointer;
+        }
+        .btn-auth:hover { background: #0056b3; }
+        .auth-toggle { margin-top: 15px; font-size: 13px; color: #666; cursor: pointer; text-decoration: underline; }
+
+        /* 사용자 프로필 / 상단 바 */
+        .user-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #ffffff;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            max-width: 1000px;
+            margin: 0 auto 15px auto;
+        }
+        .btn-admin {
+            background-color: #ffc107; color: #212529;
+            border: none; border-radius: 4px;
+            padding: 6px 12px; font-weight: bold;
+            cursor: pointer; margin-right: 10px;
+        }
+        .btn-logout {
+            background-color: #dc3545; color: white;
+            border: none; border-radius: 4px;
+            padding: 6px 12px; font-weight: bold;
+            cursor: pointer;
+        }
+
+        h2 { text-align: center; margin-bottom: 10px; }
+        .sync-status { text-align: center; font-size: 13px; color: #007bff; margin-bottom: 10px; font-weight: bold; }
+        
+        .top-bar-container {
+            position: sticky; top: 0; z-index: 100;
+            display: flex; flex-direction: column; gap: 10px;
+            max-width: 1000px; margin: 0 auto 15px auto;
+            background: #f4f6f9; padding-bottom: 10px;
+        }
+        .excel-upload-bar, .search-bar {
+            text-align: center; background: #fff;
+            padding: 12px; border-radius: 6px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.08); font-size: 13px;
+            display: flex; justify-content: center; align-items: center; gap: 15px;
+        }
+        .search-bar { background: #eef2f7; border: 1px solid #d1d8e0; }
+        .search-bar input {
+            height: 28px; width: 220px;
+            border: 1px solid #a4b0be; border-radius: 4px;
+            padding: 0 10px; font-size: 14px; font-weight: bold; color: #2f3640;
         }
 
         @keyframes slotBlink {
@@ -745,80 +906,26 @@
         }
         .highlight-slot {
             animation: slotBlink 0.8s infinite ease-in-out;
-            z-index: 10;
-            border: 2px solid #fff !important;
-            color: #fff !important;
+            z-index: 10; border: 2px solid #fff !important; color: #fff !important;
         }
 
         .all-racks-container {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            max-width: 100%;
-            overflow-x: auto;
+            display: flex; flex-direction: column; gap: 20px;
+            max-width: 100%; overflow-x: auto;
         }
-        .rack-section {
-            background: #fff;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .rack-title {
-            font-size: 16px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #0056b3;
-            border-left: 4px solid #007bff;
-            padding-left: 8px;
-        }
-        .rack-section.aisle-section {
-            background: #f1f9f5;
-            border: 1px dashed #28a745;
-        }
-        .rack-title.aisle-title {
-            color: #1e7e34;
-            border-left-color: #28a745;
-        }
+        .rack-section { background: #fff; padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .rack-title { font-size: 16px; font-weight: bold; margin-bottom: 10px; color: #0056b3; border-left: 4px solid #007bff; padding-left: 8px; }
+        .rack-section.aisle-section { background: #f1f9f5; border: 1px dashed #28a745; }
+        .rack-title.aisle-title { color: #1e7e34; border-left-color: #28a745; }
 
-        .shelf-tier {
-            display: flex;
-            align-items: center;
-            border-bottom: 1px solid #f1f1f1;
-            padding-bottom: 8px;
-            margin-top: 6px;
-        }
-        .tier-label {
-            width: 60px;
-            font-weight: bold;
-            text-align: center;
-            background: #e9ecef;
-            padding: 8px;
-            border-radius: 4px;
-            margin-right: 15px;
-            font-size: 13px;
-        }
-        .grid-14 {
-            display: grid;
-            grid-template-columns: repeat(14, 55px);
-            gap: 6px;
-        }
+        .shelf-tier { display: flex; align-items: center; border-bottom: 1px solid #f1f1f1; padding-bottom: 8px; margin-top: 6px; }
+        .tier-label { width: 60px; font-weight: bold; text-align: center; background: #e9ecef; padding: 8px; border-radius: 4px; margin-right: 15px; font-size: 13px; }
+        .grid-14 { display: grid; grid-template-columns: repeat(14, 55px); gap: 6px; }
         .slot {
-            width: 55px;
-            height: 55px;
-            border: 2px solid #ccc;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            font-size: 11px;
-            text-align: center;
-            word-break: break-all;
-            cursor: pointer;
-            user-select: none;
-            transition: all 0.2s;
-            padding: 2px;
-            pointer-events: auto !important;
+            width: 55px; height: 55px; border: 2px solid #ccc; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 11px; text-align: center; word-break: break-all;
+            cursor: pointer; user-select: none; transition: all 0.2s; padding: 2px;
         }
 
         .slot.occupied.pair-a { background-color: #cbecee; border-color: #9acfd4; color: #0c5460; }
@@ -827,111 +934,30 @@
         .slot.empty { background-color: #fff3cd; border-color: #ffeeba; color: #856404; }
         .slot.aisle { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
         .slot.defect { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
-
         .slot.drag-over { border: 2px dashed #007bff !important; background-color: #e2e3e5 !important; }
 
-        .legend-container {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin-bottom: 15px;
-            font-size: 13px;
-        }
+        .legend-container { display: flex; justify-content: center; gap: 15px; margin-bottom: 15px; font-size: 13px; }
         .legend-item { display: flex; align-items: center; gap: 5px; }
         .legend-box { width: 18px; height: 18px; border-radius: 3px; border: 1px solid #ccc; }
 
         .modal {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5);
-            justify-content: center;
-            align-items: center;
-            z-index: 999;
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 999;
         }
         .modal-content {
-            background: white;
-            padding: 22px;
-            border-radius: 8px;
-            width: 380px;
-            max-height: 85vh;
-            overflow-y: auto;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            background: white; padding: 22px; border-radius: 8px; width: 380px; max-height: 85vh; overflow-y: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
-        .modal-content h3 { margin-top: 0; }
-        .modal-content p { margin: 10px 0; }
-        
         .large-modal-content {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            width: 650px;
-            max-height: 85vh;
-            overflow-y: auto;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+            background: white; padding: 30px; border-radius: 10px; width: 650px; max-height: 85vh; overflow-y: auto; box-shadow: 0 8px 20px rgba(0,0,0,0.3);
         }
 
-        .input-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 4px;
-        }
-        .input-row input {
-            height: 26px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 0 8px;
-            flex: 1;
-        }
-        .list-container {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            max-height: 120px;
-            overflow-y: auto;
-            padding-right: 4px;
-        }
+        .input-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+        .input-row input { height: 26px; border: 1px solid #ccc; border-radius: 4px; padding: 0 8px; flex: 1; }
+        .list-container { display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto; padding-right: 4px; }
         
-        .btn-delete {
-            background-color: #dc3545;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 4px 8px;
-            font-size: 11px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-            white-space: nowrap;
-        }
-        .btn-delete:hover { background-color: #a73a45; }
-        .btn-add-item {
-            background-color: #28a745;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 4px 8px;
-            font-size: 12px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        .btn-add-item:hover { background-color: #218838; }
-
-        .btn-detail {
-            background-color: #17a2b8;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 14px;
-            font-size: 13px;
-            font-weight: bold;
-            cursor: pointer;
-            width: 100%;
-            margin-top: 10px;
-            transition: background-color 0.2s;
-        }
-        .btn-detail:hover { background-color: #138496; }
+        .btn-delete { background-color: #dc3545; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; font-weight: bold; cursor: pointer; }
+        .btn-add-item { background-color: #28a745; color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 12px; font-weight: bold; cursor: pointer; }
+        .btn-detail { background-color: #17a2b8; color: white; border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 10px; }
 
         .modal-buttons { text-align: right; margin-top: 18px; }
         .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; }
@@ -943,44 +969,75 @@
 </head>
 <body>
 
-    <h2>Fuxxing BS 창고 실시간 재고관리</h2>
-    <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
-
-    <div class="top-bar-container">
-        <!-- 엑셀 업로드 바 -->
-        <div class="excel-upload-bar">
-            <div>
-                📊 <strong>재고 엑셀 업로드:</strong> 
-                <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)" style="margin-left: 8px;">
-            </div>
-            <div id="excelStatusText" style="font-weight: bold; color: #dc3545; font-size: 12px;">
-                ⚠️ 업로드된 엑셀 파일 없음
-            </div>
+    <!-- 1. 로그인 / 회원가입 화면 -->
+    <div class="auth-container" id="authContainer">
+        <!-- 로그인 폼 -->
+        <div class="auth-card" id="loginCard">
+            <h2>🔐 로그인</h2>
+            <input type="email" id="loginEmail" placeholder="이메일 주소">
+            <input type="password" id="loginPassword" placeholder="비밀번호">
+            <button class="btn-auth" onclick="handleLogin()">로그인</button>
+            <div class="auth-toggle" onclick="showRegisterForm()">계정이 없으신가요? 회원가입 신청</div>
         </div>
 
-        <!-- 파레트 번호 실시간 검색 바 -->
-        <div class="search-bar">
-            <div>
-                🔍 <strong>파레트 번호 빠른 검색:</strong> 
-                <input type="text" id="palletSearchInput" placeholder="파레트 번호 입력..." oninput="searchPalletLocation(this.value, true)" style="margin-left: 8px;">
-            </div>
-            <div id="searchResultText" style="font-size: 13px; color: #666; font-weight: bold;">
-                파레트 번호를 입력하세요.
-            </div>
+        <!-- 회원가입 폼 -->
+        <div class="auth-card" id="registerCard" style="display: none;">
+            <h2>📝 회원가입 신청</h2>
+            <input type="text" id="regName" placeholder="이름 (성함)">
+            <input type="email" id="regEmail" placeholder="이메일 주소">
+            <input type="password" id="regPassword" placeholder="비밀번호">
+            <button class="btn-auth" style="background:#28a745;" onclick="handleRegister()">가입 신청하기</button>
+            <div class="auth-toggle" onclick="showLoginForm()">이미 계정이 있으신가요? 로그인</div>
         </div>
     </div>
 
-    <div class="legend-container">
-        <div class="legend-item"><div class="legend-box" style="background:#cbecee; border-color:#9acfd4;"></div> 재고 있음</div>
-        <div class="legend-item"><div class="legend-box" style="background:#fff3cd; border-color:#ffeeba;"></div> 재고 없음</div>
-        <div class="legend-item"><div class="legend-box" style="background:#d4edda; border-color:#c3e6cb;"></div> 통로/복도</div>
-        <div class="legend-item"><div class="legend-box" style="background:#f8d7da; border-color:#f5c6cb;"></div> 불량</div>
-    </div>
-    
-    <div class="all-racks-container" id="allRacks"></div>
+    <!-- 2. 창고 관리 메인 화면 (승인 완료 시 표시) -->
+    <div id="mainContainer" style="display: none;">
+        <div class="user-bar">
+            <div>👤 접속자: <strong id="userDisplay">...</strong></div>
+            <div>
+                <button class="btn-admin" id="adminBtn" onclick="openAdminModal()" style="display: none;">👑 승인 관리자</button>
+                <button class="btn-logout" onclick="handleLogout()">로그아웃</button>
+            </div>
+        </div>
 
-    <div class="instructions">
-        💡 재고 있음 슬롯만 가로 2개씩 교차 색상이 적용되며, 통로·재고없음·불량은 기존 색상으로 표시됩니다.
+        <h2>Fuxxing BS 창고 실시간 재고관리</h2>
+        <div class="sync-status" id="syncStatus">🔄 서버 연결 시도 중...</div>
+
+        <div class="top-bar-container">
+            <div class="excel-upload-bar">
+                <div>
+                    📊 <strong>재고 엑셀 업로드:</strong> 
+                    <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)" style="margin-left: 8px;">
+                </div>
+                <div id="excelStatusText" style="font-weight: bold; color: #dc3545; font-size: 12px;">
+                    ⚠️ 업로드된 엑셀 파일 없음
+                </div>
+            </div>
+
+            <div class="search-bar">
+                <div>
+                    🔍 <strong>파레트 번호 빠른 검색:</strong> 
+                    <input type="text" id="palletSearchInput" placeholder="파레트 번호 입력..." oninput="searchPalletLocation(this.value, true)" style="margin-left: 8px;">
+                </div>
+                <div id="searchResultText" style="font-size: 13px; color: #666; font-weight: bold;">
+                    파레트 번호를 입력하세요.
+                </div>
+            </div>
+        </div>
+
+        <div class="legend-container">
+            <div class="legend-item"><div class="legend-box" style="background:#cbecee; border-color:#9acfd4;"></div> 재고 있음</div>
+            <div class="legend-item"><div class="legend-box" style="background:#fff3cd; border-color:#ffeeba;"></div> 재고 없음</div>
+            <div class="legend-item"><div class="legend-box" style="background:#d4edda; border-color:#c3e6cb;"></div> 통로/복도</div>
+            <div class="legend-item"><div class="legend-box" style="background:#f8d7da; border-color:#f5c6cb;"></div> 불량</div>
+        </div>
+        
+        <div class="all-racks-container" id="allRacks"></div>
+
+        <div class="instructions">
+            💡 승인된 사용자만 접속 가능하며, 관리자는 가입 신청자를 즉시 승인할 수 있습니다.
+        </div>
     </div>
 
     <!-- 1번 모달창 (로케이션 정보 수정) -->
@@ -988,17 +1045,14 @@
         <div class="modal-content">
             <h3 id="modalTitle">로케이션 정보</h3>
             <p><strong>위치:</strong> <span id="modalLoc"></span></p>
-            
             <p>
                 <strong>파레트 번호 목록:</strong>
                 <div class="list-container" id="palletListContainer"></div>
             </p>
-
             <p>
                 <strong>컬렉션명</strong>
                 <div class="list-container" id="itemListContainer"></div>
             </p>
-
             <p>
                 <strong>상태:</strong><br>
                 <select id="modalStatus" onchange="handleStatusChange(this.value)" style="height: 30px; border-radius: 4px; border: 1px solid #ccc; width: 100%; margin-top: 4px;">
@@ -1008,11 +1062,9 @@
                     <option value="defect">불량</option>
                 </select>
             </p>
-
             <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 5px;">
                 <button type="button" class="btn-detail" onclick="openDetailModal()">📋 제품 상세 내역 크게 보기</button>
             </div>
-
             <div class="modal-buttons">
                 <button class="btn btn-secondary" onclick="closeModal()">취소</button>
                 <button class="btn btn-primary" onclick="saveModalData()">저장</button>
@@ -1020,13 +1072,24 @@
         </div>
     </div>
 
-    <!-- 2번 모달창 (엑셀 제품 상세 대형 모달 창) -->
+    <!-- 2번 모달창 (엑셀 제품 상세 모달) -->
     <div class="modal" id="excelDetailModal">
         <div class="large-modal-content">
             <h3 id="detailModalTitle" style="margin-top:0; color:#0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px;">로케이션 제품 상세 내역</h3>
             <div id="detailModalBody" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;"></div>
             <div style="text-align: right; margin-top: 20px;">
                 <button type="button" class="btn btn-primary" onclick="closeDetailModal()" style="padding: 8px 20px; font-size: 14px;">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3번 모달창 (관리자 승인 패널) -->
+    <div class="modal" id="adminModal">
+        <div class="large-modal-content">
+            <h3 style="margin-top:0; color:#ffc107; border-bottom: 2px solid #ffc107; padding-bottom: 10px;">👑 회원 가입 승인 관리</h3>
+            <div id="adminModalBody" style="max-height: 60vh; overflow-y: auto; padding-right: 5px;"></div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="closeAdminModal()">닫기</button>
             </div>
         </div>
     </div>
