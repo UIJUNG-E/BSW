@@ -349,48 +349,59 @@
                         });
                         
 slot.addEventListener('drop', (e) => {
-    e.preventDefault();
-    const targetKey = e.currentTarget.dataset.key;
-    e.currentTarget.classList.remove('drag-over');
+                            e.preventDefault();
+                            const targetKey = e.currentTarget.dataset.key;
+                            e.currentTarget.classList.remove('drag-over');
 
-    if (draggedSourceKey && draggedSourceKey !== targetKey) {
-        let srcData = warehouseData[draggedSourceKey];
-        let targetData = warehouseData[targetKey];
+                            if (draggedSourceKey && draggedSourceKey !== targetKey) {
+                                let srcData = warehouseData[draggedSourceKey];
+                                let targetData = warehouseData[targetKey];
 
-        let updates = {};
+                                let updates = {};
 
-        let srcIsAisle = aisleRacks.includes(srcData.rack);
-        let targetIsAisle = aisleRacks.includes(targetData.rack);
+                                let srcIsAisle = aisleRacks.includes(srcData.rack);
+                                let targetIsAisle = aisleRacks.includes(targetData.rack);
 
-        // 1. 타겟 슬롯에 출발지(Source) 데이터 입력
-        updates[targetKey + '/pallets'] = srcData.pallets;
-        updates[targetKey + '/items'] = srcData.items;
-        updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
+                                // 출발지와 목적지의 '재고 있음' 여부 판단
+                                let srcHasValid = srcData.pallets && srcData.pallets.some(p => p !== '' && p !== 'x');
+                                let targetHasValid = targetData.pallets && targetData.pallets.some(p => p !== '' && p !== 'x');
 
-        // 2. 출발지(Source) 슬롯에 타겟의 기존 데이터 입력 (서로 완벽하게 Swap)
-        if (targetIsAisle) {
-            updates[draggedSourceKey + '/pallets'] = [''];
-            updates[draggedSourceKey + '/items'] = [''];
-            updates[draggedSourceKey + '/status'] = 'aisle';
-        } else {
-            // 타겟이 빈 칸(empty)이었거나 재고가 있던 슬롯인 경우 상태와 데이터를 그대로 넘겨줌
-            let targetHasValid = targetData.pallets && targetData.pallets.some(p => p !== '' && p !== 'x');
-            
-            if (targetHasValid || targetData.status === 'occupied' || targetData.status === 'defect') {
-                updates[draggedSourceKey + '/pallets'] = targetData.pallets;
-                updates[draggedSourceKey + '/items'] = targetData.items;
-                updates[draggedSourceKey + '/status'] = targetData.status;
-            } else {
-                // 타겟이 빈 슬롯(x)이었다면 출발지는 빈 슬롯으로 변경
-                updates[draggedSourceKey + '/pallets'] = ['x'];
-                updates[draggedSourceKey + '/items'] = ['-'];
-                updates[draggedSourceKey + '/status'] = 'empty';
-            }
-        }
+                                // 1. 타겟(목적지)에 출발지 데이터 반영
+                                updates[targetKey + '/pallets'] = srcData.pallets;
+                                updates[targetKey + '/items'] = srcData.items;
+                                updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
 
-        update(dbRef, updates);
-    }
-});
+                                // 2. 출발지(원래 자리) 처리 (규칙 1, 2, 3 적용)
+                                if (srcIsAisle) {
+                                    // 규칙 3: 통로에서 출발한 경우 -> 원래 자리는 다시 통로(aisle)로 복구
+                                    updates[draggedSourceKey + '/pallets'] = [''];
+                                    updates[draggedSourceKey + '/items'] = [''];
+                                    updates[draggedSourceKey + '/status'] = 'aisle';
+                                } else {
+                                    // 렉 선반에서 출발한 경우
+                                    if (targetIsAisle) {
+                                        // 규칙 2: 선반(재고있음) -> 통로로 갈 때 -> 원래 선반 자리는 재고없음(x)으로 변경
+                                        updates[draggedSourceKey + '/pallets'] = ['x'];
+                                        updates[draggedSourceKey + '/items'] = ['-'];
+                                        updates[draggedSourceKey + '/status'] = 'empty';
+                                    } else {
+                                        // 규칙 1: 재고있음 -> 재고있음 (서로 교체 / Swap) 또는 빈자리 교체
+                                        if (targetHasValid || targetData.status === 'occupied' || targetData.status === 'defect') {
+                                            updates[draggedSourceKey + '/pallets'] = targetData.pallets;
+                                            updates[draggedSourceKey + '/items'] = targetData.items;
+                                            updates[draggedSourceKey + '/status'] = targetData.status;
+                                        } else {
+                                            // 타겟이 빈 칸(x)이었던 경우
+                                            updates[draggedSourceKey + '/pallets'] = ['x'];
+                                            updates[draggedSourceKey + '/items'] = ['-'];
+                                            updates[draggedSourceKey + '/status'] = 'empty';
+                                        }
+                                    }
+                                }
+
+                                update(dbRef, updates);
+                            }
+                        });
 
                         slot.addEventListener('click', () => {
                             openModal(key);
