@@ -13,8 +13,16 @@
         import { getDatabase, ref, onValue, set, update, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
+        // 사용자가 제공한 실제 파이어베이스 설정값 적용
         const firebaseConfig = {
-            databaseURL: "https://warehouse-bs-5e863-default-rtdb.firebaseio.com/"
+            apiKey: "AIzaSyBPsX2qYaRbchLCyFRLo1pNZRdrQEYAS1c",
+            authDomain: "warehouse-bs-5e863.firebaseapp.com",
+            databaseURL: "https://warehouse-bs-5e863-default-rtdb.firebaseio.com",
+            projectId: "warehouse-bs-5e863",
+            storageBucket: "warehouse-bs-5e863.firebasestorage.app",
+            messagingSenderId: "653290825811",
+            appId: "1:653290825811:web:c596a6fae58ab12f8bfea6",
+            measurementId: "G-3K3Z3HWCVT"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -22,7 +30,7 @@
         const auth = getAuth(app);
         const dbRef = ref(db, 'warehouse');
 
-        // 👑 관리자 이메일 설정
+        // 👑 관리자로 지정할 이메일 주소 (본인 이메일로 변경 가능)
         const ADMIN_EMAIL = "admin@email.com"; 
 
         let currentUser = null;
@@ -73,7 +81,7 @@
             }
         });
 
-        // --- 로그인 / 회원가입 함수 (window 객체에 명시적 등록) ---
+        // --- 로그인 / 회원가입 함수 ---
         window.handleLogin = function() {
             const email = document.getElementById('loginEmail').value.trim();
             const pass = document.getElementById('loginPassword').value.trim();
