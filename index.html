@@ -29,9 +29,10 @@
         const db = getDatabase(app);
         const auth = getAuth(app);
         const dbRef = ref(db, 'warehouse');
+        const excelDbRef = ref(db, 'excelData');
 
-        // 👑 관리자로 지정할 이메일 주소 (본인 이메일로 변경 가능)
-        const ADMIN_EMAIL = "asmaeiji@gmail.com"; 
+        // 👑 관리자로 지정할 이메일 주소
+        const ADMIN_EMAIL = "admin@email.com"; 
 
         let currentUser = null;
         let isApprovedUser = false;
@@ -62,7 +63,7 @@
                             document.getElementById('adminBtn').style.display = 'none';
                         }
 
-                        loadSavedExcelData();
+                        listenExcelData();   // 엑셀 데이터 서버 실시간 동기화
                         initDefaultData();
                         listenRealtimeData();
                     } else {
@@ -195,22 +196,20 @@
             document.getElementById('adminModal').style.display = 'none';
         };
 
-        // --- 창고 로직 ---
-        function loadSavedExcelData() {
-            const savedData = localStorage.getItem('warehouse_excel_cache');
-            const savedFileName = localStorage.getItem('warehouse_excel_filename');
-            
-            if (savedData) {
-                try {
-                    window.excelRawData = JSON.parse(savedData);
-                    if (savedFileName) {
-                        document.getElementById('excelStatusText').innerText = `✅ [유지중] ${savedFileName} (총 ${window.excelRawData.length}건)`;
-                        document.getElementById('excelStatusText').style.color = "#28a745";
-                    }
-                } catch (e) {
-                    console.error("저장된 엑셀 캐시 복원 실패:", e);
+        // --- 엑셀 데이터 실시간 서버 동기화 ---
+        function listenExcelData() {
+            onValue(excelDbRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data && data.rows) {
+                    window.excelRawData = data.rows;
+                    document.getElementById('excelStatusText').innerText = `✅ [서버공유] ${data.filename} (총 ${window.excelRawData.length}건)`;
+                    document.getElementById('excelStatusText').style.color = "#28a745";
+                } else {
+                    window.excelRawData = [];
+                    document.getElementById('excelStatusText').innerText = `⚠️ 업로드된 엑셀 파일 없음`;
+                    document.getElementById('excelStatusText').style.color = "#dc3545";
                 }
-            }
+            });
         }
 
         const totalRacks = 6;
@@ -268,7 +267,7 @@
                 if (data) {
                     warehouseData = data;
                     renderWarehouse();
-                    syncStatus.innerText = "🟢 실시간 동기화 연결됨";
+                    syncStatus.innerText = "🟢 창고 데이터 실시간 동기화 연결됨";
                     syncStatus.style.color = "#28a745";
 
                     const searchVal = document.getElementById('palletSearchInput').value.trim();
@@ -348,7 +347,8 @@
                             e.currentTarget.classList.remove('drag-over');
                         });
                         
-slot.addEventListener('drop', (e) => {
+                        // 드래그 앤 드롭 규칙 적용 (1. 재고교체, 2. 선반->통로는 재고없음, 3. 통로->통로/렉은 통로복구)
+                        slot.addEventListener('drop', (e) => {
                             e.preventDefault();
                             const targetKey = e.currentTarget.dataset.key;
                             e.currentTarget.classList.remove('drag-over');
@@ -362,36 +362,34 @@ slot.addEventListener('drop', (e) => {
                                 let srcIsAisle = aisleRacks.includes(srcData.rack);
                                 let targetIsAisle = aisleRacks.includes(targetData.rack);
 
-                                // 출발지와 목적지의 '재고 있음' 여부 판단
                                 let srcHasValid = srcData.pallets && srcData.pallets.some(p => p !== '' && p !== 'x');
                                 let targetHasValid = targetData.pallets && targetData.pallets.some(p => p !== '' && p !== 'x');
 
-                                // 1. 타겟(목적지)에 출발지 데이터 반영
+                                // 타겟에 출발지 데이터 반영
                                 updates[targetKey + '/pallets'] = srcData.pallets;
                                 updates[targetKey + '/items'] = srcData.items;
                                 updates[targetKey + '/status'] = targetIsAisle ? 'occupied' : srcData.status;
 
-                                // 2. 출발지(원래 자리) 처리 (규칙 1, 2, 3 적용)
+                                // 출발지 자리 처리
                                 if (srcIsAisle) {
                                     // 규칙 3: 통로에서 출발한 경우 -> 원래 자리는 다시 통로(aisle)로 복구
                                     updates[draggedSourceKey + '/pallets'] = [''];
                                     updates[draggedSourceKey + '/items'] = [''];
                                     updates[draggedSourceKey + '/status'] = 'aisle';
                                 } else {
-                                    // 렉 선반에서 출발한 경우
+                                    // 선반에서 출발한 경우
                                     if (targetIsAisle) {
                                         // 규칙 2: 선반(재고있음) -> 통로로 갈 때 -> 원래 선반 자리는 재고없음(x)으로 변경
                                         updates[draggedSourceKey + '/pallets'] = ['x'];
                                         updates[draggedSourceKey + '/items'] = ['-'];
                                         updates[draggedSourceKey + '/status'] = 'empty';
                                     } else {
-                                        // 규칙 1: 재고있음 -> 재고있음 (서로 교체 / Swap) 또는 빈자리 교체
+                                        // 규칙 1: 재고있음 <-> 재고있음 (서로 교체 / Swap)
                                         if (targetHasValid || targetData.status === 'occupied' || targetData.status === 'defect') {
                                             updates[draggedSourceKey + '/pallets'] = targetData.pallets;
                                             updates[draggedSourceKey + '/items'] = targetData.items;
                                             updates[draggedSourceKey + '/status'] = targetData.status;
                                         } else {
-                                            // 타겟이 빈 칸(x)이었던 경우
                                             updates[draggedSourceKey + '/pallets'] = ['x'];
                                             updates[draggedSourceKey + '/items'] = ['-'];
                                             updates[draggedSourceKey + '/status'] = 'empty';
@@ -672,6 +670,7 @@ slot.addEventListener('drop', (e) => {
             }
         };
 
+        // 엑셀 업로드 시 서버(Firebase DB)에 저장하여 모든 기기 공유
         window.handleExcelUpload = function(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -685,7 +684,7 @@ slot.addEventListener('drop', (e) => {
                     const worksheet = workbook.Sheets[firstSheetName];
                     const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                     
-                    window.excelRawData = [];
+                    let parsedData = [];
                     rows.forEach((r, idx) => {
                         if (idx === 0) return;
                         let palletNo = r[0];
@@ -696,7 +695,7 @@ slot.addEventListener('drop', (e) => {
                         let qty = Number(r[5]) || 0;
 
                         if (palletNo !== undefined && palletNo !== null && String(palletNo).trim() !== '') {
-                            window.excelRawData.push({
+                            parsedData.push({
                                 pallet: String(palletNo).trim(),
                                 collection: collectionName ? String(collectionName).trim() : '일반',
                                 item: itemName ? String(itemName).trim() : '기타',
@@ -707,13 +706,19 @@ slot.addEventListener('drop', (e) => {
                         }
                     });
 
-                    localStorage.setItem('warehouse_excel_cache', JSON.stringify(window.excelRawData));
-                    localStorage.setItem('warehouse_excel_filename', file.name);
+                    // Firebase 서버에 저장 (모든 기기 동기화)
+                    const excelPayload = {
+                        filename: file.name,
+                        rows: parsedData,
+                        updatedAt: new Date().toISOString()
+                    };
 
-                    document.getElementById('excelStatusText').innerText = `✅ [유지중] ${file.name} (총 ${window.excelRawData.length}건)`;
-                    document.getElementById('excelStatusText').style.color = "#28a745";
+                    set(excelDbRef, excelPayload).then(() => {
+                        alert(`엑셀 파일 업로드 및 서버 동기화 완료!\n총 ${parsedData.length}건`);
+                    }).catch(err => {
+                        alert("서버 저장 실패: " + err.message);
+                    });
 
-                    alert(`엑셀 파일 업로드 및 저장 완료!\n총 ${window.excelRawData.length}건`);
                 } catch (err) {
                     alert("엑셀 파일 오류: " + err.message);
                 }
@@ -1059,7 +1064,7 @@ slot.addEventListener('drop', (e) => {
         <div class="all-racks-container" id="allRacks"></div>
 
         <div class="instructions">
-            💡 승인된 사용자만 접속 가능하며, 관리자는 가입 신청자를 즉시 승인할 수 있습니다.
+            💡 서버 동기화를 통해 PC와 핸드폰에서 동일한 엑셀 재고 데이터를 실시간으로 공유합니다.
         </div>
     </div>
 
